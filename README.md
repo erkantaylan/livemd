@@ -1,6 +1,6 @@
 # LiveMD
 
-Live markdown viewer powered by CLI file watching.
+Live file viewer with syntax highlighting, powered by CLI file watching.
 
 ## Problem
 
@@ -63,9 +63,15 @@ Open http://localhost:3000 in your browser.
 ```
 make              Show help
 make build        Build the binary
-make run          Build and start the server
 make install      Install to /usr/local/bin
 make clean        Remove binary
+
+make start        Start the server
+make stop         Stop the server
+
+make watch f1 f2  Add files to watch
+make unwatch f1   Remove files from watch
+make list         List watched files
 ```
 
 ## Features
@@ -74,12 +80,13 @@ make clean        Remove binary
 - **Sidebar UI** - File list with tracking and last change times
 - **WebSocket live updates** - No page refresh needed
 - **GitHub-flavored markdown** - Tables, task lists, autolinks
-- **Syntax highlighting** - Code blocks rendered with colors
+- **Syntax highlighting** - Code blocks in markdown and standalone code files (50+ languages)
 - **Cross-platform** - Works on Linux, macOS, Windows
 
 ## Tech Stack
 
 - Go single binary (~15MB)
 - [goldmark](https://github.com/yuin/goldmark) for markdown parsing
+- [chroma](https://github.com/alecthomas/chroma) for syntax highlighting
 - [fsnotify](https://github.com/fsnotify/fsnotify) for file watching
 - [gorilla/websocket](https://github.com/gorilla/websocket) for live updates
