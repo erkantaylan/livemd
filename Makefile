@@ -1,25 +1,34 @@
-.PHONY: build run install clean dev
+.PHONY: build run install clean
 
 # Default file to watch
 FILE ?= README.md
 PORT ?= 3000
 
+# Detect OS for binary name
+ifeq ($(OS),Windows_NT)
+    BINARY = livemd.exe
+    RM = del /F /Q
+else
+    BINARY = livemd
+    RM = rm -f
+endif
+
 # Build the binary
 build:
-	go build -o livemd .
+	go build -o $(BINARY) .
 
 # Run with a file (usage: make run FILE=docs/guide.md)
 run: build
-	./livemd --port $(PORT) $(FILE)
+	./$(BINARY) --port $(PORT) $(FILE)
 
-# Install globally
+# Install globally (Unix only)
 install: build
-	cp livemd /usr/local/bin/
+ifeq ($(OS),Windows_NT)
+	@echo "On Windows, copy $(BINARY) to a directory in your PATH manually"
+else
+	cp $(BINARY) /usr/local/bin/
+endif
 
 # Clean build artifacts
 clean:
-	rm -f livemd
-
-# Dev: rebuild and run on source changes (requires entr)
-dev:
-	find . -name '*.go' -o -name '*.html' -o -name '*.css' -o -name '*.js' | entr -r make run FILE=$(FILE)
+	$(RM) $(BINARY)
