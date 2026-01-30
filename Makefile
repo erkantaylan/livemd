@@ -57,18 +57,13 @@ list:
 
 # Show help
 help:
-	@echo "LiveMD - Live markdown viewer"
-	@echo ""
-	@echo "Build:"
-	@echo "  make build          Build the binary"
-	@echo "  make install        Install to /usr/local/bin"
-	@echo "  make clean          Remove binary"
-	@echo ""
-	@echo "Server:"
-	@echo "  make start          Start the server"
-	@echo "  make stop           Stop the server"
-	@echo ""
-	@echo "Files:"
-	@echo "  make add FILE=x     Add a file to watch"
-	@echo "  make remove FILE=x  Remove a file"
-	@echo "  make list           List watched files"
+	@echo LiveMD - Live markdown viewer
+	@echo ---
+	@echo   build ........ Build the binary
+	@echo   install ...... Install to PATH
+	@echo   clean ........ Remove binary
+	@echo   start ........ Start server
+	@echo   stop ......... Stop server
+	@echo   add FILE=x ... Add file to watch
+	@echo   remove FILE=x. Remove file
+	@echo   list ......... List watched files
