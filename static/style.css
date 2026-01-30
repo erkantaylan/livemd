@@ -120,6 +120,7 @@ body {
     cursor: pointer;
     border-left: 3px solid transparent;
     transition: background 0.15s;
+    position: relative;
 }
 
 .file-item:hover {
@@ -137,6 +138,34 @@ body {
     color: #fff;
     margin-bottom: 4px;
     word-break: break-all;
+    padding-right: 24px;
+}
+
+.file-remove {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 20px;
+    height: 20px;
+    border: none;
+    background: transparent;
+    color: #666;
+    cursor: pointer;
+    border-radius: 3px;
+    font-size: 16px;
+    line-height: 20px;
+    text-align: center;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.file-item:hover .file-remove {
+    opacity: 1;
+}
+
+.file-remove:hover {
+    background: #3a3a3a;
+    color: #f85149;
 }
 
 .file-meta {

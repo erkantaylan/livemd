@@ -57,6 +57,7 @@
 
         fileList.innerHTML = files.map(f => `
             <div class="file-item ${f.path === activeFile ? 'active' : ''}" data-path="${f.path}">
+                <button class="file-remove" data-path="${f.path}" title="Remove from watch">&times;</button>
                 <div class="file-name">${escapeHtml(f.name)}</div>
                 <div class="file-meta">
                     <span><span class="label">Tracking:</span> ${formatTime(f.trackTime)}</span>
@@ -67,9 +68,27 @@
 
         // Add click handlers
         fileList.querySelectorAll('.file-item').forEach(el => {
-            el.addEventListener('click', () => {
+            el.addEventListener('click', (e) => {
+                // Don't select if clicking remove button
+                if (e.target.classList.contains('file-remove')) return;
                 selectFile(el.dataset.path);
             });
+        });
+
+        // Add remove handlers
+        fileList.querySelectorAll('.file-remove').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                removeFile(btn.dataset.path);
+            });
+        });
+    }
+
+    function removeFile(path) {
+        fetch('/api/watch?path=' + encodeURIComponent(path), {
+            method: 'DELETE'
+        }).catch(err => {
+            console.error('Failed to remove file:', err);
         });
     }
 
