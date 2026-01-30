@@ -12,10 +12,23 @@
             <span class="logo">LiveMD</span>
             <span class="status" id="status">connecting...</span>
         </div>
-        <div class="file-list" id="file-list">
-            <div class="empty-state">
-                <p>No files being watched</p>
-                <code>livemd add file.md</code>
+        <div class="sidebar-tabs">
+            <button class="tab-btn active" data-tab="files">Files</button>
+            <button class="tab-btn" data-tab="logs">Logs</button>
+        </div>
+        <div class="tab-content" id="files-tab">
+            <div class="file-list" id="file-list">
+                <div class="empty-state">
+                    <p>No files being watched</p>
+                    <code>livemd add file.md</code>
+                </div>
+            </div>
+        </div>
+        <div class="tab-content hidden" id="logs-tab">
+            <div class="log-list" id="log-list">
+                <div class="empty-state">
+                    <p>No logs yet</p>
+                </div>
             </div>
         </div>
     </aside>

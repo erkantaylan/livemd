@@ -36,6 +36,8 @@ type Message struct {
 	Files []WatchedFile `json:"files,omitempty"`
 	File  *WatchedFile  `json:"file,omitempty"`
 	Path  string        `json:"path,omitempty"`
+	Log   *LogEntry     `json:"log,omitempty"`
+	Logs  []LogEntry    `json:"logs,omitempty"`
 }
 
 // Client represents a connected WebSocket client
@@ -56,10 +58,11 @@ type Hub struct {
 	files    map[string]*WatchedFile
 	watchers map[string]*Watcher
 	renderer *Renderer
+	logger   *Logger
 }
 
 func NewHub() *Hub {
-	return &Hub{
+	h := &Hub{
 		clients:    make(map[*Client]bool),
 		broadcast:  make(chan []byte, 256),
 		register:   make(chan *Client),
@@ -67,7 +70,10 @@ func NewHub() *Hub {
 		files:      make(map[string]*WatchedFile),
 		watchers:   make(map[string]*Watcher),
 		renderer:   NewRenderer(),
+		logger:     NewLogger(100),
 	}
+	h.logger.SetHub(h)
+	return h
 }
 
 func (h *Hub) Run() {
@@ -75,6 +81,7 @@ func (h *Hub) Run() {
 		select {
 		case client := <-h.register:
 			h.clients[client] = true
+			h.logger.Info("Browser connected")
 			// Send current file list to new client
 			h.sendFileList(client)
 
@@ -82,6 +89,7 @@ func (h *Hub) Run() {
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
 				close(client.send)
+				h.logger.Info("Browser disconnected")
 			}
 
 		case message := <-h.broadcast:
@@ -108,6 +116,12 @@ func (h *Hub) sendFileList(client *Client) {
 	msg := Message{Type: "files", Files: files}
 	data, _ := json.Marshal(msg)
 	client.send <- data
+
+	// Also send logs
+	logs := h.logger.GetEntries()
+	logsMsg := Message{Type: "logs", Logs: logs}
+	logsData, _ := json.Marshal(logsMsg)
+	client.send <- logsData
 }
 
 func (h *Hub) broadcastFileList() {
@@ -125,6 +139,12 @@ func (h *Hub) broadcastFileList() {
 
 func (h *Hub) broadcastFileUpdate(file *WatchedFile) {
 	msg := Message{Type: "update", File: file}
+	data, _ := json.Marshal(msg)
+	h.broadcast <- data
+}
+
+func (h *Hub) broadcastLog(entry LogEntry) {
+	msg := Message{Type: "log", Log: &entry}
 	data, _ := json.Marshal(msg)
 	h.broadcast <- data
 }
@@ -178,7 +198,7 @@ func (h *Hub) AddFile(path string) error {
 
 		html, err := h.renderer.Render(path)
 		if err != nil {
-			log.Printf("Error rendering %s: %v", path, err)
+			h.logger.Error(fmt.Sprintf("Error rendering %s: %v", filepath.Base(path), err))
 			h.mu.Unlock()
 			return
 		}
@@ -188,21 +208,24 @@ func (h *Hub) AddFile(path string) error {
 		f.LastChange = info.ModTime()
 		h.mu.Unlock()
 
-		log.Printf("File updated: %s", filepath.Base(path))
+		h.logger.Info(fmt.Sprintf("File changed: %s", filepath.Base(path)))
 		h.broadcastFileUpdate(f)
 	})
 
+	h.logger.Info(fmt.Sprintf("Started watching: %s", filepath.Base(path)))
 	h.broadcastFileList()
 	return nil
 }
 
 func (h *Hub) RemoveFile(path string) error {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
-	if _, exists := h.files[path]; !exists {
+	file, exists := h.files[path]
+	if !exists {
+		h.mu.Unlock()
 		return fmt.Errorf("not watching: %s", path)
 	}
+	name := file.Name
 
 	// Stop watcher
 	if w, exists := h.watchers[path]; exists {
@@ -211,6 +234,9 @@ func (h *Hub) RemoveFile(path string) error {
 	}
 
 	delete(h.files, path)
+	h.mu.Unlock()
+
+	h.logger.Info(fmt.Sprintf("Stopped watching: %s", name))
 
 	// Broadcast removal
 	msg := Message{Type: "removed", Path: path}
@@ -331,6 +357,12 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(files)
 }
 
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	logs := s.hub.logger.GetEntries()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(logs)
+}
+
 func StartServer(port int) {
 	hub := NewHub()
 	go hub.Run()
@@ -372,6 +404,7 @@ func StartServer(port int) {
 		}
 	})
 	mux.HandleFunc("/api/files", s.handleListFiles)
+	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/api/shutdown", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		go func() {

@@ -1,6 +1,7 @@
 // WebSocket client for LiveMD
 (function() {
     const fileList = document.getElementById('file-list');
+    const logList = document.getElementById('log-list');
     const content = document.getElementById('content');
     const status = document.getElementById('status');
 
@@ -9,7 +10,18 @@
     const maxReconnectDelay = 10000;
 
     let files = [];
+    let logs = [];
     let activeFile = null;
+
+    // Tab switching
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.add('hidden'));
+            btn.classList.add('active');
+            document.getElementById(btn.dataset.tab + '-tab').classList.remove('hidden');
+        });
+    });
 
     function formatTime(isoString) {
         const date = new Date(isoString);
@@ -27,6 +39,11 @@
         return date.toLocaleDateString();
     }
 
+    function formatLogTime(isoString) {
+        const date = new Date(isoString);
+        return date.toLocaleTimeString('en-US', { hour12: false });
+    }
+
     function renderFileList() {
         if (files.length === 0) {
             fileList.innerHTML = `
@@ -40,7 +57,7 @@
 
         fileList.innerHTML = files.map(f => `
             <div class="file-item ${f.path === activeFile ? 'active' : ''}" data-path="${f.path}">
-                <div class="file-name">${f.name}</div>
+                <div class="file-name">${escapeHtml(f.name)}</div>
                 <div class="file-meta">
                     <span><span class="label">Tracking:</span> ${formatTime(f.trackTime)}</span>
                     <span><span class="label">Changed:</span> ${formatTime(f.lastChange)}</span>
@@ -54,6 +71,33 @@
                 selectFile(el.dataset.path);
             });
         });
+    }
+
+    function renderLogList() {
+        if (logs.length === 0) {
+            logList.innerHTML = `
+                <div class="empty-state">
+                    <p>No logs yet</p>
+                </div>
+            `;
+            return;
+        }
+
+        // Show newest first
+        const reversedLogs = [...logs].reverse();
+        logList.innerHTML = reversedLogs.map(l => `
+            <div class="log-entry ${l.level}">
+                <span class="log-time">${formatLogTime(l.time)}</span>
+                <span class="log-level">${l.level}</span>
+                <span class="log-message">${escapeHtml(l.message)}</span>
+            </div>
+        `).join('');
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 
     function selectFile(path) {
@@ -95,6 +139,24 @@
                         if (file && file.html) {
                             content.innerHTML = file.html;
                         }
+                    }
+                    break;
+
+                case 'logs':
+                    // Full logs update
+                    logs = data.logs || [];
+                    renderLogList();
+                    break;
+
+                case 'log':
+                    // Single log entry
+                    if (data.log) {
+                        logs.push(data.log);
+                        // Keep only last 100
+                        if (logs.length > 100) {
+                            logs = logs.slice(-100);
+                        }
+                        renderLogList();
                     }
                     break;
 

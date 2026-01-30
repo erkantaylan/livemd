@@ -59,11 +59,16 @@ list:
 help:
 	@echo LiveMD - Live markdown viewer
 	@echo ---
-	@echo   build ........ Build the binary
-	@echo   install ...... Install to PATH
-	@echo   clean ........ Remove binary
-	@echo   start ........ Start server
-	@echo   stop ......... Stop server
-	@echo   add FILE=x ... Add file to watch
-	@echo   remove FILE=x. Remove file
-	@echo   list ......... List watched files
+	@echo Build:
+	@echo   make build ....... Build binary
+	@echo   make install ..... Install to PATH
+	@echo   make clean ....... Remove binary
+	@echo ---
+	@echo Server:
+	@echo   make start ....... Start server
+	@echo   make stop ........ Stop server
+	@echo   make list ........ List watched files
+	@echo ---
+	@echo Files - use CLI directly:
+	@echo   livemd add file.md
+	@echo   livemd remove file.md

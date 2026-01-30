@@ -98,15 +98,29 @@ func cmdAdd() {
 	}
 
 	filePath := os.Args[2]
-	absPath, err := filepath.Abs(filePath)
+
+	// Try path conversion for WSL/Windows interop
+	convertedPath := NormalizePath(filePath)
+
+	absPath, err := filepath.Abs(convertedPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error resolving path: %v\n", err)
 		os.Exit(1)
 	}
 
+	// Try original path if converted doesn't exist
 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "File not found: %s\n", absPath)
-		os.Exit(1)
+		// Try the original path
+		origAbs, _ := filepath.Abs(filePath)
+		if _, err2 := os.Stat(origAbs); err2 == nil {
+			absPath = origAbs
+		} else {
+			fmt.Fprintf(os.Stderr, "File not found: %s\n", filePath)
+			if convertedPath != filePath {
+				fmt.Fprintf(os.Stderr, "  (tried: %s)\n", absPath)
+			}
+			os.Exit(1)
+		}
 	}
 
 	port, err := readLockFile()
