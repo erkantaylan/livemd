@@ -12,6 +12,7 @@
     let files = [];
     let logs = [];
     let activeFile = null;
+    let collapsedFolders = new Set(); // Track collapsed folder paths
 
     // Tab switching
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -56,6 +57,118 @@
         return `.../${parent}/${file}`;
     }
 
+    function findCommonPrefix(paths) {
+        if (paths.length === 0) return '';
+        if (paths.length === 1) {
+            const parts = paths[0].split('/');
+            parts.pop(); // Remove filename
+            return parts.join('/');
+        }
+
+        const splitPaths = paths.map(p => p.split('/'));
+        const minLen = Math.min(...splitPaths.map(p => p.length));
+        let commonParts = [];
+
+        for (let i = 0; i < minLen - 1; i++) { // -1 to exclude filename
+            const part = splitPaths[0][i];
+            if (splitPaths.every(p => p[i] === part)) {
+                commonParts.push(part);
+            } else {
+                break;
+            }
+        }
+
+        return commonParts.join('/');
+    }
+
+    function buildTree(files, commonPrefix) {
+        const tree = { children: {}, files: [] };
+        const prefixLen = commonPrefix ? commonPrefix.length + 1 : 0;
+
+        for (const file of files) {
+            const relativePath = file.path.slice(prefixLen);
+            const parts = relativePath.split('/');
+            const fileName = parts.pop();
+
+            let current = tree;
+            let currentPath = commonPrefix;
+
+            for (const part of parts) {
+                currentPath = currentPath ? currentPath + '/' + part : part;
+                if (!current.children[part]) {
+                    current.children[part] = {
+                        children: {},
+                        files: [],
+                        path: currentPath,
+                        name: part
+                    };
+                }
+                current = current.children[part];
+            }
+
+            current.files.push({ ...file, displayName: fileName });
+        }
+
+        return tree;
+    }
+
+    function renderTreeNode(node, depth = 0) {
+        let html = '';
+        const indent = depth * 16;
+
+        // Sort folders alphabetically
+        const folderNames = Object.keys(node.children).sort();
+
+        for (const folderName of folderNames) {
+            const folder = node.children[folderName];
+            const isCollapsed = collapsedFolders.has(folder.path);
+            const chevron = isCollapsed ? '▶' : '▼';
+
+            html += `
+                <div class="tree-folder ${isCollapsed ? 'collapsed' : ''}" data-path="${escapeHtml(folder.path)}" style="padding-left: ${indent}px">
+                    <span class="folder-toggle" data-path="${escapeHtml(folder.path)}">${chevron}</span>
+                    <span class="folder-icon">📁</span>
+                    <span class="folder-name">${escapeHtml(folderName)}</span>
+                </div>
+            `;
+
+            if (!isCollapsed) {
+                html += renderTreeNode(folder, depth + 1);
+            }
+        }
+
+        // Sort files alphabetically
+        const sortedFiles = [...node.files].sort((a, b) =>
+            a.displayName.localeCompare(b.displayName)
+        );
+
+        for (const file of sortedFiles) {
+            html += `
+                <div class="file-item tree-file ${file.path === activeFile ? 'active' : ''}" data-path="${escapeHtml(file.path)}" style="padding-left: ${indent}px">
+                    <button class="file-remove" data-path="${escapeHtml(file.path)}" title="Remove from watch">🗑️</button>
+                    <span class="file-icon">📄</span>
+                    <div class="file-info">
+                        <div class="file-name" title="${escapeHtml(file.path)}">${escapeHtml(file.displayName)}</div>
+                        <div class="file-meta">
+                            <span class="label">Changed:</span> ${formatShortDateTime(file.lastChange)}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        return html;
+    }
+
+    function toggleFolder(path) {
+        if (collapsedFolders.has(path)) {
+            collapsedFolders.delete(path);
+        } else {
+            collapsedFolders.add(path);
+        }
+        renderFileList();
+    }
+
     function formatLogTime(isoString) {
         const date = new Date(isoString);
         return date.toLocaleTimeString('en-US', { hour12: false });
@@ -72,18 +185,23 @@
             return;
         }
 
-        fileList.innerHTML = files.map(f => `
-            <div class="file-item ${f.path === activeFile ? 'active' : ''}" data-path="${f.path}">
-                <button class="file-remove" data-path="${f.path}" title="Remove from watch">🗑️</button>
-                <div class="file-name" title="${escapeHtml(f.path)}">${escapeHtml(truncatePath(f.path))}</div>
-                <div class="file-meta">
-                    <span class="label">Tracking:</span> ${formatShortDateTime(f.trackTime)}<span class="separator">|</span><span class="label">Changed:</span> ${formatShortDateTime(f.lastChange)}
-                </div>
-            </div>
-        `).join('');
+        // Build tree from file paths
+        const paths = files.map(f => f.path);
+        const commonPrefix = findCommonPrefix(paths);
+        const tree = buildTree(files, commonPrefix);
 
-        // Add click handlers
-        fileList.querySelectorAll('.file-item').forEach(el => {
+        // Show common prefix as root if it exists
+        let html = '';
+        if (commonPrefix) {
+            const rootName = commonPrefix.split('/').pop() || commonPrefix;
+            html += `<div class="tree-root" title="${escapeHtml(commonPrefix)}">📁 ${escapeHtml(rootName)}</div>`;
+        }
+        html += renderTreeNode(tree, commonPrefix ? 1 : 0);
+
+        fileList.innerHTML = html;
+
+        // Add click handlers for files
+        fileList.querySelectorAll('.tree-file').forEach(el => {
             el.addEventListener('click', (e) => {
                 // Don't select if clicking remove button
                 if (e.target.classList.contains('file-remove')) return;
@@ -96,6 +214,21 @@
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 removeFile(btn.dataset.path);
+            });
+        });
+
+        // Add folder toggle handlers
+        fileList.querySelectorAll('.folder-toggle').forEach(el => {
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleFolder(el.dataset.path);
+            });
+        });
+
+        // Also allow clicking the whole folder row to toggle
+        fileList.querySelectorAll('.tree-folder').forEach(el => {
+            el.addEventListener('click', () => {
+                toggleFolder(el.dataset.path);
             });
         });
     }
