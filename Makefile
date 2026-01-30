@@ -50,7 +50,11 @@ watch:
 ifeq ($(ARGS),)
 	@echo Usage: make watch file1.md file2.md ...
 else
+ifeq ($(OS),Windows_NT)
+	@for %%f in ($(ARGS)) do $(BINARY) add %%f
+else
 	@for f in $(ARGS); do ./$(BINARY) add $$f; done
+endif
 endif
 
 # Unwatch files: make unwatch file1.md file2.md
@@ -58,7 +62,11 @@ unwatch:
 ifeq ($(ARGS),)
 	@echo Usage: make unwatch file1.md file2.md ...
 else
+ifeq ($(OS),Windows_NT)
+	@for %%f in ($(ARGS)) do $(BINARY) remove %%f
+else
 	@for f in $(ARGS); do ./$(BINARY) remove $$f; done
+endif
 endif
 
 # Show help
