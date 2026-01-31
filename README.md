@@ -67,11 +67,18 @@ Open http://localhost:3000 in your browser.
 ```
 make              Show help
 make build        Build the binary
-make install      Install to /usr/local/bin
 make clean        Remove binary
 
-make start        Start the server
+make install      Install to /usr/local/bin (sudo)
+make install-user Install to ~/.local/bin (no sudo)
+make uninstall    Remove from /usr/local/bin
+make uninstall-user Remove from ~/.local/bin
+make update       Pull latest and rebuild
+
+make start        Start the server (foreground)
 make stop         Stop the server
+make daemon       Start as background daemon
+make daemon-stop  Stop background daemon
 
 make watch f1 f2      Add files to watch
 make watch-dir ./dir  Add folder recursively
@@ -88,6 +95,7 @@ make list             List watched files
 - **WebSocket live updates** - No page refresh needed
 - **GitHub-flavored markdown** - Tables, task lists, autolinks
 - **Syntax highlighting** - Code blocks in markdown and standalone code files (50+ languages)
+- **Network access** - Shows all network interface IPs on startup for easy access from other devices
 - **Cross-platform** - Works on Linux, macOS, Windows
 
 ## Tech Stack
