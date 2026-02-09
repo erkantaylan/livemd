@@ -75,6 +75,8 @@ Usage:
   livemd remove <file.md>       Remove file from watch
   livemd list                   List watched files
   livemd stop                   Stop the server
+  livemd port                   Show current port
+  livemd port <number>          Set default port
   livemd version                Print version
   livemd update                 Update to latest release
 
@@ -111,6 +113,8 @@ Examples:
 		cmdList()
 	case "stop":
 		cmdStop()
+	case "port":
+		cmdPort()
 	case "version", "--version", "-v":
 		fmt.Printf("livemd %s %s/%s\n", Version, runtime.GOOS, runtime.GOARCH)
 	case "update":
@@ -129,8 +133,9 @@ Examples:
 // If the server is already running (detected via lock file), it exits with an error.
 // The server runs in the foreground until stopped via "livemd stop" or SIGINT.
 func cmdStart() {
+	defaultPort := readConfigPort()
 	fs := flag.NewFlagSet("start", flag.ExitOnError)
-	port := fs.Int("port", 3000, "port to serve on")
+	port := fs.Int("port", defaultPort, "port to serve on")
 	fs.Parse(os.Args[2:])
 
 	// Check if already running
@@ -140,20 +145,55 @@ func cmdStart() {
 		os.Exit(1)
 	}
 
+	// Auto-detect available port if the requested one is in use
+	actualPort := *port
+	if !isPortAvailable(actualPort) {
+		originalPort := actualPort
+		actualPort = findAvailablePort(actualPort)
+		fmt.Printf("  Port %d is in use, using port %d instead\n", originalPort, actualPort)
+	}
+
 	// Write lock file
-	if err := writeLockFile(*port); err != nil {
+	if err := writeLockFile(actualPort); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing lock file: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Start server
 	fmt.Printf("\n  LiveMD server started\n")
-	printServerAddresses(*port)
+	printServerAddresses(actualPort)
 	fmt.Println("  Use 'livemd add <file.md>' to watch files")
 	fmt.Println("  Use 'livemd stop' to stop the server")
 	fmt.Println()
 
-	StartServer(*port)
+	StartServer(actualPort)
+}
+
+// isPortAvailable checks if a TCP port can be listened on.
+func isPortAvailable(port int) bool {
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return false
+	}
+	ln.Close()
+	return true
+}
+
+// findAvailablePort scans upward from startPort to find the next available port.
+func findAvailablePort(startPort int) int {
+	for p := startPort + 1; p <= startPort+100; p++ {
+		if isPortAvailable(p) {
+			return p
+		}
+	}
+	// Fallback: let the OS pick
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		return startPort
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	return port
 }
 
 // getNetworkAddresses returns all non-loopback IPv4 addresses from active network interfaces.
@@ -525,6 +565,72 @@ func cmdStop() {
 
 	removeLockFile()
 	fmt.Println("LiveMD server stopped.")
+}
+
+// cmdPort handles the "livemd port" command.
+// With no arguments, it displays the current configured port.
+// With a port number argument, it sets the default port for future server starts.
+func cmdPort() {
+	if len(os.Args) < 3 {
+		port := readConfigPort()
+		fmt.Printf("Default port: %d\n", port)
+		if lockPort, err := readLockFile(); err == nil {
+			fmt.Printf("Running on:   %d\n", lockPort)
+			printServerAddresses(lockPort)
+		}
+		return
+	}
+
+	portStr := os.Args[2]
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		fmt.Fprintf(os.Stderr, "Invalid port: %s (must be 1-65535)\n", portStr)
+		os.Exit(1)
+	}
+
+	if err := writeConfigPort(port); err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving port: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Default port set to %d\n", port)
+}
+
+// Config file helpers
+//
+// The config file stores user preferences like the default port.
+// Location: ~/.livemd.conf (Unix) or %APPDATA%/livemd.conf (Windows)
+
+func getConfigFilePath() string {
+	if runtime.GOOS == "windows" {
+		appData := os.Getenv("APPDATA")
+		if appData == "" {
+			appData = os.Getenv("USERPROFILE")
+		}
+		return filepath.Join(appData, "livemd.conf")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".livemd.conf")
+}
+
+func readConfigPort() int {
+	data, err := os.ReadFile(getConfigFilePath())
+	if err != nil {
+		return 3000
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "port=") {
+			if p, err := strconv.Atoi(strings.TrimPrefix(line, "port=")); err == nil && p > 0 && p <= 65535 {
+				return p
+			}
+		}
+	}
+	return 3000
+}
+
+func writeConfigPort(port int) error {
+	return os.WriteFile(getConfigFilePath(), []byte(fmt.Sprintf("port=%d\n", port)), 0644)
 }
 
 // Lock file helpers

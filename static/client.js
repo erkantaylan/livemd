@@ -4,6 +4,8 @@
     const logList = document.getElementById('log-list');
     const content = document.getElementById('content');
     const status = document.getElementById('status');
+    const deletedBar = document.getElementById('deleted-bar');
+    const removeDeletedBtn = document.getElementById('remove-deleted-btn');
 
     let ws;
     let reconnectDelay = 1000;
@@ -12,33 +14,24 @@
     let files = [];
     let logs = [];
     let activeFile = null;
-    let collapsedFolders = new Set(); // Track collapsed folder paths
+    let collapsedFolders = new Set();
 
     // Tab switching
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(t => t.classList.add('hidden'));
-            btn.classList.add('active');
-            document.getElementById(btn.dataset.tab + '-tab').classList.remove('hidden');
+    document.querySelectorAll('.tabs li').forEach(li => {
+        li.addEventListener('click', () => {
+            document.querySelectorAll('.tabs li').forEach(l => l.classList.remove('is-active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.add('is-hidden'));
+            li.classList.add('is-active');
+            document.getElementById(li.dataset.tab + '-tab').classList.remove('is-hidden');
         });
     });
 
-    function formatTime(isoString) {
-        const date = new Date(isoString);
-        const now = new Date();
-        const diffMs = now - date;
-        const diffMins = Math.floor(diffMs / 60000);
-        const diffHours = Math.floor(diffMs / 3600000);
-        const diffDays = Math.floor(diffMs / 86400000);
-
-        if (diffMins < 1) return 'just now';
-        if (diffMins < 60) return diffMins + 'm ago';
-        if (diffHours < 24) return diffHours + 'h ago';
-        if (diffDays < 7) return diffDays + 'd ago';
-
-        return date.toLocaleDateString();
-    }
+    // Remove all deleted files button
+    removeDeletedBtn.addEventListener('click', () => {
+        fetch('/api/files/remove-deleted', { method: 'POST' }).catch(err => {
+            console.error('Failed to remove deleted files:', err);
+        });
+    });
 
     function formatShortDateTime(isoString) {
         const date = new Date(isoString);
@@ -49,19 +42,11 @@
         return `${month}-${day} ${hours}:${mins}`;
     }
 
-    function truncatePath(fullPath) {
-        const parts = fullPath.split('/');
-        if (parts.length <= 3) return fullPath;
-        const file = parts[parts.length - 1];
-        const parent = parts[parts.length - 2];
-        return `.../${parent}/${file}`;
-    }
-
     function findCommonPrefix(paths) {
         if (paths.length === 0) return '';
         if (paths.length === 1) {
             const parts = paths[0].split('/');
-            parts.pop(); // Remove filename
+            parts.pop();
             return parts.join('/');
         }
 
@@ -69,7 +54,7 @@
         const minLen = Math.min(...splitPaths.map(p => p.length));
         let commonParts = [];
 
-        for (let i = 0; i < minLen - 1; i++) { // -1 to exclude filename
+        for (let i = 0; i < minLen - 1; i++) {
             const part = splitPaths[0][i];
             if (splitPaths.every(p => p[i] === part)) {
                 commonParts.push(part);
@@ -116,18 +101,17 @@
         let html = '';
         const indent = depth * 16;
 
-        // Sort folders alphabetically
         const folderNames = Object.keys(node.children).sort();
 
         for (const folderName of folderNames) {
             const folder = node.children[folderName];
             const isCollapsed = collapsedFolders.has(folder.path);
-            const chevron = isCollapsed ? '▶' : '▼';
+            const chevron = isCollapsed ? '&#9654;' : '&#9660;';
 
             html += `
                 <div class="tree-folder ${isCollapsed ? 'collapsed' : ''}" data-path="${escapeHtml(folder.path)}" style="padding-left: ${indent}px">
                     <span class="folder-toggle" data-path="${escapeHtml(folder.path)}">${chevron}</span>
-                    <span class="folder-icon">📁</span>
+                    <span class="folder-icon">&#128193;</span>
                     <span class="folder-name">${escapeHtml(folderName)}</span>
                 </div>
             `;
@@ -137,22 +121,25 @@
             }
         }
 
-        // Sort files alphabetically
         const sortedFiles = [...node.files].sort((a, b) =>
             a.displayName.localeCompare(b.displayName)
         );
 
         for (const file of sortedFiles) {
-            const watchIcon = file.active ? '👁️' : '📄';
-            const watchTitle = file.active ? 'Actively watching' : 'Registered (click to watch)';
+            const isDeleted = file.deleted;
+            const watchIcon = isDeleted ? '&#10060;' : (file.active ? '&#128065;&#65039;' : '&#128196;');
+            const watchTitle = isDeleted ? 'File deleted from disk' : (file.active ? 'Actively watching' : 'Registered (click to watch)');
+            const deletedClass = isDeleted ? 'deleted' : '';
+            const stateClass = file.active ? 'watching' : 'registered';
+
             html += `
-                <div class="file-item tree-file ${file.path === activeFile ? 'active' : ''} ${file.active ? 'watching' : 'registered'}" data-path="${escapeHtml(file.path)}" style="padding-left: ${indent}px">
-                    <button class="file-remove" data-path="${escapeHtml(file.path)}" title="Remove from watch">🗑️</button>
+                <div class="file-item tree-file ${file.path === activeFile ? 'active' : ''} ${stateClass} ${deletedClass}" data-path="${escapeHtml(file.path)}" style="padding-left: ${indent}px">
+                    <button class="file-remove" data-path="${escapeHtml(file.path)}" title="Remove from watch">&#128465;&#65039;</button>
                     <span class="file-icon" title="${watchTitle}">${watchIcon}</span>
                     <div class="file-info">
                         <div class="file-name" title="${escapeHtml(file.path)}">${escapeHtml(file.displayName)}</div>
                         <div class="file-meta">
-                            <span class="label">Changed:</span> ${formatShortDateTime(file.lastChange)}
+                            ${isDeleted ? '<span class="has-text-danger">deleted</span>' : '<span class="meta-label">Changed:</span> ' + formatShortDateTime(file.lastChange)}
                         </div>
                     </div>
                 </div>
@@ -176,6 +163,15 @@
         return date.toLocaleTimeString('en-US', { hour12: false });
     }
 
+    function updateDeletedBar() {
+        const hasDeleted = files.some(f => f.deleted);
+        if (hasDeleted) {
+            deletedBar.classList.remove('is-hidden');
+        } else {
+            deletedBar.classList.add('is-hidden');
+        }
+    }
+
     function renderFileList() {
         if (files.length === 0) {
             fileList.innerHTML = `
@@ -184,34 +180,31 @@
                     <code>livemd add file.md</code>
                 </div>
             `;
+            updateDeletedBar();
             return;
         }
 
-        // Build tree from file paths
         const paths = files.map(f => f.path);
         const commonPrefix = findCommonPrefix(paths);
         const tree = buildTree(files, commonPrefix);
 
-        // Show common prefix as root if it exists
         let html = '';
         if (commonPrefix) {
             const rootName = commonPrefix.split('/').pop() || commonPrefix;
-            html += `<div class="tree-root" title="${escapeHtml(commonPrefix)}">📁 ${escapeHtml(rootName)}</div>`;
+            html += `<div class="tree-root" title="${escapeHtml(commonPrefix)}">&#128193; ${escapeHtml(rootName)}</div>`;
         }
         html += renderTreeNode(tree, commonPrefix ? 1 : 0);
 
         fileList.innerHTML = html;
+        updateDeletedBar();
 
-        // Add click handlers for files
         fileList.querySelectorAll('.tree-file').forEach(el => {
             el.addEventListener('click', (e) => {
-                // Don't select if clicking remove button
                 if (e.target.classList.contains('file-remove')) return;
                 selectFile(el.dataset.path);
             });
         });
 
-        // Add remove handlers
         fileList.querySelectorAll('.file-remove').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -219,7 +212,6 @@
             });
         });
 
-        // Add folder toggle handlers
         fileList.querySelectorAll('.folder-toggle').forEach(el => {
             el.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -227,7 +219,6 @@
             });
         });
 
-        // Also allow clicking the whole folder row to toggle
         fileList.querySelectorAll('.tree-folder').forEach(el => {
             el.addEventListener('click', () => {
                 toggleFolder(el.dataset.path);
@@ -253,7 +244,6 @@
             return;
         }
 
-        // Show newest first
         const reversedLogs = [...logs].reverse();
         logList.innerHTML = reversedLogs.map(l => `
             <div class="log-entry ${l.level}">
@@ -271,22 +261,22 @@
     }
 
     function selectFile(path) {
+        const file = files.find(f => f.path === path);
+        if (file && file.deleted) return; // Can't select deleted files
+
         const previousFile = activeFile;
         activeFile = path;
         renderFileList();
 
-        const file = files.find(f => f.path === path);
         if (file && file.html) {
             content.innerHTML = file.html;
             document.title = file.name + ' - LiveMD';
         }
 
-        // Activate watching for newly selected file
         if (path && path !== previousFile) {
             activateFile(path);
         }
 
-        // Deactivate watching for previously selected file
         if (previousFile && previousFile !== path) {
             deactivateFile(previousFile);
         }
@@ -314,7 +304,7 @@
 
         ws.onopen = function() {
             status.textContent = 'live';
-            status.className = 'status connected';
+            status.className = 'tag is-success is-light';
             reconnectDelay = 1000;
         };
 
@@ -323,33 +313,35 @@
 
             switch (data.type) {
                 case 'files':
-                    // Full file list update
                     files = data.files || [];
                     renderFileList();
 
-                    // Auto-select first file if none selected
                     if (!activeFile && files.length > 0) {
-                        selectFile(files[0].path);
+                        const firstNonDeleted = files.find(f => !f.deleted);
+                        if (firstNonDeleted) selectFile(firstNonDeleted.path);
                     } else if (activeFile) {
-                        // Re-render current file
                         const file = files.find(f => f.path === activeFile);
-                        if (file && file.html) {
+                        if (file && file.html && !file.deleted) {
                             content.innerHTML = file.html;
+                        } else if (file && file.deleted) {
+                            content.innerHTML = `
+                                <div class="welcome">
+                                    <h1 class="has-text-danger">File Deleted</h1>
+                                    <p>${escapeHtml(file.name)} has been deleted from disk.</p>
+                                </div>
+                            `;
                         }
                     }
                     break;
 
                 case 'logs':
-                    // Full logs update
                     logs = data.logs || [];
                     renderLogList();
                     break;
 
                 case 'log':
-                    // Single log entry
                     if (data.log) {
                         logs.push(data.log);
-                        // Keep only last 100
                         if (logs.length > 100) {
                             logs = logs.slice(-100);
                         }
@@ -358,7 +350,6 @@
                     break;
 
                 case 'update':
-                    // Single file update
                     if (data.file) {
                         const idx = files.findIndex(f => f.path === data.file.path);
                         if (idx >= 0) {
@@ -368,7 +359,6 @@
                         }
                         renderFileList();
 
-                        // Update content if this is the active file
                         if (data.file.path === activeFile) {
                             const scrollY = window.scrollY;
                             content.innerHTML = data.file.html;
@@ -378,14 +368,14 @@
                     break;
 
                 case 'removed':
-                    // File removed
                     files = files.filter(f => f.path !== data.path);
                     renderFileList();
 
                     if (data.path === activeFile) {
                         activeFile = null;
-                        if (files.length > 0) {
-                            selectFile(files[0].path);
+                        const remaining = files.filter(f => !f.deleted);
+                        if (remaining.length > 0) {
+                            selectFile(remaining[0].path);
                         } else {
                             content.innerHTML = `
                                 <div class="welcome">
@@ -403,9 +393,8 @@
 
         ws.onclose = function() {
             status.textContent = 'disconnected';
-            status.className = 'status disconnected';
+            status.className = 'tag is-danger is-light';
 
-            // Reconnect with exponential backoff
             setTimeout(function() {
                 reconnectDelay = Math.min(reconnectDelay * 1.5, maxReconnectDelay);
                 connect();

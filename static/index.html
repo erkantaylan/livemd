@@ -4,19 +4,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LiveMD</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <aside class="sidebar">
         <div class="sidebar-header">
             <span class="logo">LiveMD</span>
-            <span class="status" id="status">connecting...</span>
+            <span class="tag is-dark" id="status">connecting...</span>
         </div>
-        <div class="sidebar-tabs">
-            <button class="tab-btn active" data-tab="files">Files</button>
-            <button class="tab-btn" data-tab="logs">Logs</button>
+        <div class="tabs is-small sidebar-tabs">
+            <ul>
+                <li class="is-active" data-tab="files"><a>Files</a></li>
+                <li data-tab="logs"><a>Logs</a></li>
+            </ul>
         </div>
         <div class="tab-content" id="files-tab">
+            <div id="deleted-bar" class="deleted-bar is-hidden">
+                <button class="button is-small is-danger is-outlined" id="remove-deleted-btn">Remove all deleted</button>
+            </div>
             <div class="file-list" id="file-list">
                 <div class="empty-state">
                     <p>No files being watched</p>
@@ -24,7 +30,7 @@
                 </div>
             </div>
         </div>
-        <div class="tab-content hidden" id="logs-tab">
+        <div class="tab-content is-hidden" id="logs-tab">
             <div class="log-list" id="log-list">
                 <div class="empty-state">
                     <p>No logs yet</p>
@@ -33,7 +39,7 @@
         </div>
     </aside>
     <main>
-        <article id="content">
+        <article class="content" id="content">
             <div class="welcome">
                 <h1>LiveMD</h1>
                 <p>Add a markdown file to get started:</p>

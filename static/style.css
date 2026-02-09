@@ -1,16 +1,9 @@
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
+/* LiveMD - Custom styles (used alongside Bulma) */
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    line-height: 1.6;
-    color: #24292e;
-    background: #fff;
     display: flex;
     height: 100vh;
+    overflow: hidden;
 }
 
 /* Sidebar */
@@ -38,47 +31,32 @@ body {
     color: #fff;
 }
 
-.status {
-    font-size: 11px;
-    padding: 3px 8px;
-    border-radius: 3px;
-    background: #333;
-}
-
-.status.connected {
-    color: #3fb950;
-}
-
-.status.disconnected {
-    color: #f85149;
-}
-
-/* Tabs */
+/* Sidebar tabs override Bulma defaults */
 .sidebar-tabs {
-    display: flex;
     border-bottom: 1px solid #333;
+    margin-bottom: 0 !important;
 }
 
-.tab-btn {
-    flex: 1;
-    padding: 10px;
-    background: transparent;
-    border: none;
+.sidebar-tabs ul {
+    border-bottom: none;
+}
+
+.sidebar-tabs li a {
     color: #888;
-    font-size: 13px;
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    transition: all 0.15s;
+    border-bottom-color: transparent;
+    padding: 10px;
 }
 
-.tab-btn:hover {
+.sidebar-tabs li a:hover {
     color: #ccc;
     background: #2a2a2a;
+    border-bottom-color: transparent;
 }
 
-.tab-btn.active {
+.sidebar-tabs li.is-active a {
     color: #fff;
     border-bottom-color: #0078d4;
+    background: transparent;
 }
 
 .tab-content {
@@ -86,10 +64,6 @@ body {
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-}
-
-.tab-content.hidden {
-    display: none;
 }
 
 .file-list, .log-list {
@@ -112,6 +86,13 @@ body {
     border-radius: 4px;
     font-size: 12px;
     color: #9cdcfe;
+}
+
+/* Deleted files bar */
+.deleted-bar {
+    padding: 8px 16px;
+    border-bottom: 1px solid #333;
+    background: rgba(248, 81, 73, 0.1);
 }
 
 /* Tree view */
@@ -204,17 +185,28 @@ body {
     text-overflow: ellipsis;
 }
 
-.watch-indicator {
-    margin-right: 6px;
-    font-size: 12px;
-}
-
 .file-item.registered .file-name {
     color: #888;
 }
 
 .file-item.watching .file-name {
     color: #fff;
+}
+
+/* Deleted file styling */
+.file-item.deleted {
+    background: rgba(248, 81, 73, 0.08);
+    border-left-color: #f85149;
+    cursor: default;
+}
+
+.file-item.deleted .file-name {
+    color: #f85149;
+    text-decoration: line-through;
+}
+
+.file-item.deleted .file-icon {
+    opacity: 0.7;
 }
 
 .file-remove {
@@ -252,13 +244,8 @@ body {
     text-overflow: ellipsis;
 }
 
-.file-meta .label {
+.file-meta .meta-label {
     color: #666;
-}
-
-.file-meta .separator {
-    color: #555;
-    margin: 0 6px;
 }
 
 /* Main content */
@@ -293,133 +280,6 @@ article {
 
 .welcome code {
     font-size: 14px;
-}
-
-/* Typography */
-article h1, article h2, article h3, article h4, article h5, article h6 {
-    margin-top: 24px;
-    margin-bottom: 16px;
-    font-weight: 600;
-    line-height: 1.25;
-}
-
-article h1 { font-size: 2em; padding-bottom: 0.3em; border-bottom: 1px solid #eaecef; }
-article h2 { font-size: 1.5em; padding-bottom: 0.3em; border-bottom: 1px solid #eaecef; }
-article h3 { font-size: 1.25em; }
-article h4 { font-size: 1em; }
-
-article h1:first-child, article h2:first-child, article h3:first-child {
-    margin-top: 0;
-}
-
-article p {
-    margin-bottom: 16px;
-}
-
-article a {
-    color: #0366d6;
-    text-decoration: none;
-}
-
-article a:hover {
-    text-decoration: underline;
-}
-
-/* Code */
-article code {
-    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-    font-size: 85%;
-    background: #f6f8fa;
-    padding: 0.2em 0.4em;
-    border-radius: 3px;
-}
-
-article pre {
-    background: #f6f8fa;
-    padding: 16px;
-    overflow-x: auto;
-    border-radius: 6px;
-    margin-bottom: 16px;
-}
-
-article pre code {
-    background: none;
-    padding: 0;
-    font-size: 85%;
-    line-height: 1.45;
-}
-
-/* Lists */
-article ul, article ol {
-    margin-bottom: 16px;
-    padding-left: 2em;
-}
-
-article li {
-    margin-bottom: 4px;
-}
-
-article li > ul, article li > ol {
-    margin-bottom: 0;
-}
-
-/* Blockquotes */
-article blockquote {
-    padding: 0 1em;
-    color: #6a737d;
-    border-left: 4px solid #dfe2e5;
-    margin-bottom: 16px;
-}
-
-/* Tables */
-article table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-bottom: 16px;
-}
-
-article th, article td {
-    padding: 8px 12px;
-    border: 1px solid #dfe2e5;
-    text-align: left;
-}
-
-article th {
-    background: #f6f8fa;
-    font-weight: 600;
-}
-
-article tr:nth-child(even) {
-    background: #f6f8fa;
-}
-
-/* Images */
-article img {
-    max-width: 100%;
-    height: auto;
-}
-
-/* Horizontal rule */
-article hr {
-    height: 4px;
-    padding: 0;
-    margin: 24px 0;
-    background-color: #e1e4e8;
-    border: 0;
-}
-
-/* Task lists */
-article input[type="checkbox"] {
-    margin-right: 8px;
-}
-
-/* Error state */
-.error {
-    color: #f85149;
-    padding: 20px;
-    background: #ffeef0;
-    border-radius: 6px;
-    margin: 20px 0;
 }
 
 /* Log entries */

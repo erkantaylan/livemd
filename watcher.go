@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -22,7 +23,7 @@ func NewWatcher() *Watcher {
 	}
 }
 
-func (w *Watcher) Watch(filepath string, onChange func()) error {
+func (w *Watcher) Watch(filepath string, onChange func(), onDelete func()) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
@@ -47,12 +48,20 @@ func (w *Watcher) Watch(filepath string, onChange func()) error {
 					w.debounce(onChange)
 				}
 
-				// Handle file recreation (some editors do this)
+				// Handle file removal
 				if event.Op&fsnotify.Remove == fsnotify.Remove {
-					// Re-add the watch after a brief delay
-					time.Sleep(100 * time.Millisecond)
-					watcher.Add(filepath)
-					w.debounce(onChange)
+					// Wait briefly for editors that delete+recreate
+					time.Sleep(300 * time.Millisecond)
+					if _, err := os.Stat(filepath); os.IsNotExist(err) {
+						// File is truly gone
+						if onDelete != nil {
+							onDelete()
+						}
+					} else {
+						// File was recreated (editor behavior)
+						watcher.Add(filepath)
+						w.debounce(onChange)
+					}
 				}
 
 			case err, ok := <-watcher.Errors:

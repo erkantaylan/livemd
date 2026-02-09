@@ -28,7 +28,8 @@ type WatchedFile struct {
 	TrackTime  time.Time `json:"trackTime"`
 	LastChange time.Time `json:"lastChange"`
 	HTML       string    `json:"html,omitempty"`
-	Active     bool      `json:"active"` // true if actively being watched by fsnotify
+	Active     bool      `json:"active"`  // true if actively being watched by fsnotify
+	Deleted    bool      `json:"deleted"` // true if file was deleted from disk
 }
 
 // Message sent to clients via WebSocket
@@ -234,10 +235,25 @@ func (h *Hub) startWatcher(path string) {
 		info, _ := os.Stat(path)
 		f.HTML = html
 		f.LastChange = info.ModTime()
+		f.Deleted = false // file is back if it was marked deleted
 		h.mu.Unlock()
 
 		h.logger.Info(fmt.Sprintf("File changed: %s", filepath.Base(path)))
 		h.broadcastFileUpdate(f)
+	}, func() {
+		// onDelete callback
+		h.mu.Lock()
+		f, exists := h.files[path]
+		if !exists {
+			h.mu.Unlock()
+			return
+		}
+		f.Deleted = true
+		f.Active = false
+		h.mu.Unlock()
+
+		h.logger.Warn(fmt.Sprintf("File deleted: %s", filepath.Base(path)))
+		h.broadcastFileList()
 	})
 }
 
@@ -362,6 +378,30 @@ func (h *Hub) RemoveFile(path string) error {
 	h.broadcast <- data
 
 	return nil
+}
+
+func (h *Hub) RemoveDeletedFiles() int {
+	h.mu.Lock()
+	var toRemove []string
+	for path, f := range h.files {
+		if f.Deleted {
+			toRemove = append(toRemove, path)
+		}
+	}
+	for _, path := range toRemove {
+		if w, exists := h.watchers[path]; exists {
+			w.Close()
+			delete(h.watchers, path)
+		}
+		delete(h.files, path)
+	}
+	h.mu.Unlock()
+
+	if len(toRemove) > 0 {
+		h.logger.Info(fmt.Sprintf("Removed %d deleted file(s)", len(toRemove)))
+		h.broadcastFileList()
+	}
+	return len(toRemove)
 }
 
 func (h *Hub) GetFiles() []WatchedFile {
@@ -566,6 +606,15 @@ func StartServer(port int) {
 			return
 		}
 		s.handleDeactivateFile(w, r)
+	})
+	mux.HandleFunc("/api/files/remove-deleted", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		count := s.hub.RemoveDeletedFiles()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int{"removed": count})
 	})
 	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/api/remove", func(w http.ResponseWriter, r *http.Request) {
