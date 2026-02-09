@@ -104,6 +104,76 @@
             });
     }
 
+    // File extension to Devicon class mapping
+    const extIconMap = {
+        '.go': 'devicon-go-original-wordmark colored',
+        '.js': 'devicon-javascript-plain colored',
+        '.ts': 'devicon-typescript-plain colored',
+        '.jsx': 'devicon-react-original colored',
+        '.tsx': 'devicon-react-original colored',
+        '.py': 'devicon-python-plain colored',
+        '.rb': 'devicon-ruby-plain colored',
+        '.rs': 'devicon-rust-original',
+        '.java': 'devicon-java-plain colored',
+        '.cs': 'devicon-csharp-plain colored',
+        '.html': 'devicon-html5-plain colored',
+        '.htm': 'devicon-html5-plain colored',
+        '.css': 'devicon-css3-plain colored',
+        '.json': 'devicon-json-plain colored',
+        '.yaml': 'devicon-yaml-plain colored',
+        '.yml': 'devicon-yaml-plain colored',
+        '.xml': 'devicon-xml-plain colored',
+        '.svg': 'devicon-xml-plain colored',
+        '.md': 'devicon-markdown-original',
+        '.markdown': 'devicon-markdown-original',
+        '.sh': 'devicon-bash-plain',
+        '.bash': 'devicon-bash-plain',
+        '.docker': 'devicon-docker-plain colored',
+        '.dockerfile': 'devicon-docker-plain colored',
+        '.swift': 'devicon-swift-plain colored',
+        '.kt': 'devicon-kotlin-plain colored',
+        '.dart': 'devicon-dart-plain colored',
+        '.php': 'devicon-php-plain colored',
+        '.lua': 'devicon-lua-plain colored',
+        '.c': 'devicon-c-plain colored',
+        '.h': 'devicon-c-plain colored',
+        '.cpp': 'devicon-cplusplus-plain colored',
+        '.hpp': 'devicon-cplusplus-plain colored',
+        '.scala': 'devicon-scala-plain colored',
+        '.ex': 'devicon-elixir-plain colored',
+        '.exs': 'devicon-elixir-plain colored',
+        '.erl': 'devicon-erlang-plain colored',
+        '.hs': 'devicon-haskell-plain colored',
+        '.toml': 'devicon-tomcat-line colored',
+        '.vue': 'devicon-vuejs-plain colored',
+        '.svelte': 'devicon-svelte-plain colored',
+        '.tf': 'devicon-terraform-plain colored',
+        '.sql': 'devicon-azuresqldatabase-plain colored',
+        '.r': 'devicon-r-plain colored',
+        '.razor': 'devicon-dotnetcore-plain colored',
+    };
+
+    const filenameIconMap = {
+        'makefile': 'devicon-cmake-plain colored',
+        'dockerfile': 'devicon-docker-plain colored',
+        'go.mod': 'devicon-go-original-wordmark colored',
+        'go.sum': 'devicon-go-original-wordmark colored',
+        'package.json': 'devicon-nodejs-plain colored',
+        'tsconfig.json': 'devicon-typescript-plain colored',
+        '.gitignore': 'devicon-git-plain colored',
+    };
+
+    function getFileIconClass(filename) {
+        const lower = filename.toLowerCase();
+        if (filenameIconMap[lower]) return filenameIconMap[lower];
+        const dot = lower.lastIndexOf('.');
+        if (dot >= 0) {
+            const ext = lower.slice(dot);
+            if (extIconMap[ext]) return extIconMap[ext];
+        }
+        return '';
+    }
+
     function formatShortDateTime(isoString) {
         const date = new Date(isoString);
         const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -198,15 +268,15 @@
 
         for (const file of sortedFiles) {
             const isDeleted = file.deleted;
-            const watchIcon = isDeleted ? '&#10005;' : (file.active ? '&#9679;' : '&#9675;');
-            const watchTitle = isDeleted ? 'File deleted from disk' : (file.active ? 'Actively watching' : 'Registered (click to watch)');
             const deletedClass = isDeleted ? 'deleted' : '';
             const stateClass = file.active ? 'watching' : 'registered';
+            const iconClass = getFileIconClass(file.displayName);
+            const iconHtml = iconClass ? `<i class="${iconClass}"></i>` : '<span class="file-icon-default">&#9679;</span>';
 
             html += `
                 <div class="file-item tree-file ${file.path === activeFile ? 'active' : ''} ${stateClass} ${deletedClass}" data-path="${escapeHtml(file.path)}" style="padding-left: ${indent}px">
                     <button class="file-remove" data-path="${escapeHtml(file.path)}" title="Remove from watch">&#10005;</button>
-                    <span class="file-icon" title="${watchTitle}">${watchIcon}</span>
+                    <span class="file-icon">${iconHtml}</span>
                     <div class="file-info">
                         <div class="file-name" title="${escapeHtml(file.path)}">${isDeleted ? '<span class="has-text-danger">' + escapeHtml(file.displayName) + '</span>' : escapeHtml(file.displayName)}</div>
                     </div>
