@@ -58,12 +58,15 @@ var defaultExtensions = []string{
 	".txt",
 }
 
+// Version is set at build time via -ldflags "-X main.Version=vX.Y.Z"
+var Version = "dev"
+
 // main is the entry point for the livemd CLI tool.
 // It parses the first argument as a command and dispatches to the appropriate handler.
 // If no command is provided or an unknown command is given, it displays usage information.
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, `LiveMD - Live markdown viewer
+		fmt.Fprintf(os.Stderr, `LiveMD - Live markdown viewer (%s)
 
 Usage:
   livemd start [--port PORT]    Start the server
@@ -72,6 +75,8 @@ Usage:
   livemd remove <file.md>       Remove file from watch
   livemd list                   List watched files
   livemd stop                   Stop the server
+  livemd version                Print version
+  livemd update                 Update to latest release
 
 Options:
   --port PORT    Port to serve on (default 3000)
@@ -85,7 +90,7 @@ Examples:
   livemd add ./docs -r
   livemd add ./src -r --filter "md,go"
   livemd list
-`)
+`, Version)
 	}
 
 	if len(os.Args) < 2 {
@@ -106,6 +111,10 @@ Examples:
 		cmdList()
 	case "stop":
 		cmdStop()
+	case "version", "--version", "-v":
+		fmt.Printf("livemd %s %s/%s\n", Version, runtime.GOOS, runtime.GOARCH)
+	case "update":
+		cmdUpdate()
 	case "--help", "-h", "help":
 		flag.Usage()
 	default:

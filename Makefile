@@ -25,9 +25,12 @@ PID_FILE = $(XDG_RUNTIME_DIR)/livemd.pid
 ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 $(eval $(ARGS):;@:)
 
+# Version from git tag (fallback to dev)
+VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
+
 # Build the binary
 build:
-	go build -buildvcs=false -o $(BINARY) .
+	go build -buildvcs=false -ldflags="-X main.Version=$(VERSION)" -o $(BINARY) .
 
 # Start the server
 run: build

@@ -39,12 +39,21 @@ jobs:
         with:
           go-version: '1.21'
 
+      - name: Get version tag
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -buildvcs=false -ldflags="-s -w" -o livemd-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} .
+          go build -buildvcs=false -ldflags="-s -w -X main.Version=${{ steps.version.outputs.tag }}" -o livemd-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
