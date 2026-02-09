@@ -170,7 +170,7 @@
 
     function renderTreeNode(node, depth = 0) {
         let html = '';
-        const indent = depth * 16;
+        const indent = depth * 12;
 
         const folderNames = Object.keys(node.children).sort();
 
@@ -182,7 +182,7 @@
             html += `
                 <div class="tree-folder ${isCollapsed ? 'collapsed' : ''}" data-path="${escapeHtml(folder.path)}" style="padding-left: ${indent}px">
                     <span class="folder-toggle" data-path="${escapeHtml(folder.path)}">${chevron}</span>
-                    <span class="folder-icon">&#128193;</span>
+                    <span class="folder-icon">&#9662;</span>
                     <span class="folder-name">${escapeHtml(folderName)}</span>
                 </div>
             `;
@@ -198,14 +198,14 @@
 
         for (const file of sortedFiles) {
             const isDeleted = file.deleted;
-            const watchIcon = isDeleted ? '&#10060;' : (file.active ? '&#128065;&#65039;' : '&#128196;');
+            const watchIcon = isDeleted ? '&#10005;' : (file.active ? '&#9679;' : '&#9675;');
             const watchTitle = isDeleted ? 'File deleted from disk' : (file.active ? 'Actively watching' : 'Registered (click to watch)');
             const deletedClass = isDeleted ? 'deleted' : '';
             const stateClass = file.active ? 'watching' : 'registered';
 
             html += `
                 <div class="file-item tree-file ${file.path === activeFile ? 'active' : ''} ${stateClass} ${deletedClass}" data-path="${escapeHtml(file.path)}" style="padding-left: ${indent}px">
-                    <button class="file-remove" data-path="${escapeHtml(file.path)}" title="Remove from watch">&#128465;&#65039;</button>
+                    <button class="file-remove" data-path="${escapeHtml(file.path)}" title="Remove from watch">&#10005;</button>
                     <span class="file-icon" title="${watchTitle}">${watchIcon}</span>
                     <div class="file-info">
                         <div class="file-name" title="${escapeHtml(file.path)}">${isDeleted ? '<span class="has-text-danger">' + escapeHtml(file.displayName) + '</span>' : escapeHtml(file.displayName)}</div>
@@ -259,7 +259,7 @@
         let html = '';
         if (commonPrefix) {
             const rootName = commonPrefix.split('/').pop() || commonPrefix;
-            html += `<div class="tree-root" title="${escapeHtml(commonPrefix)}">&#128193; ${escapeHtml(rootName)}</div>`;
+            html += `<div class="tree-root" title="${escapeHtml(commonPrefix)}">${escapeHtml(rootName)}</div>`;
         }
         html += renderTreeNode(tree, commonPrefix ? 1 : 0);
 
