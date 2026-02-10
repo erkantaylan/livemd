@@ -9,12 +9,33 @@ body {
 /* Sidebar */
 .sidebar {
     width: 250px;
-    min-width: 250px;
+    min-width: 120px;
+    max-width: 600px;
     background: #1e1e1e;
     color: #ccc;
     display: flex;
     flex-direction: column;
-    border-right: 1px solid #333;
+    border-right: none;
+    flex-shrink: 0;
+}
+
+/* Sidebar resizer */
+.sidebar-resizer {
+    width: 4px;
+    cursor: col-resize;
+    background: #333;
+    flex-shrink: 0;
+    transition: background 0.15s;
+}
+
+.sidebar-resizer:hover,
+.sidebar-resizer.dragging {
+    background: #0078d4;
+}
+
+body.sidebar-resizing {
+    cursor: col-resize;
+    user-select: none;
 }
 
 .sidebar-header {
