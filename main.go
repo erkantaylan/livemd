@@ -642,7 +642,8 @@ func writeConfigPort(port int) error {
 // Location: ~/.livemd.lock (Unix) or %APPDATA%/livemd.lock (Windows)
 
 // getLockFilePath returns the platform-specific path for the lock file.
-// On Windows, it uses APPDATA or USERPROFILE. On Unix systems, it uses the home directory.
+// On Unix, uses /tmp/livemd.lock so any user can discover the running server.
+// On Windows, uses APPDATA or USERPROFILE.
 func getLockFilePath() string {
 	if runtime.GOOS == "windows" {
 		appData := os.Getenv("APPDATA")
@@ -651,8 +652,7 @@ func getLockFilePath() string {
 		}
 		return filepath.Join(appData, "livemd.lock")
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".livemd.lock")
+	return "/tmp/livemd.lock"
 }
 
 // writeLockFile creates the lock file containing the server's port number.
