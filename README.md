@@ -118,6 +118,7 @@ make list             List watched files
 - **Tree view sidebar** - Collapsible folder structure with a Live toggle on followed folders
 - **Lazy watching** - Files are registered but only actively watched when selected
 - **Many viewers** - Markdown (GFM + mermaid + KaTeX math), 50+ syntax-highlighted code languages, images, PDFs, audio, video, CSV/TSV as tables
+- **HTML preview/source toggle** - View `.html` files rendered as a live page or as highlighted source code
 - **WebSocket live updates** - No page refresh needed
 - **Self-update** - `livemd install` pulls the latest GitHub release in place
 - **Cross-platform** - Linux, macOS, Windows (background daemon on all three)

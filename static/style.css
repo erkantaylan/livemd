@@ -337,6 +337,52 @@ main {
     margin-left: auto;
 }
 
+/* HTML view toggle (Preview / Source) */
+.view-toggle {
+    display: inline-flex;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.view-toggle.is-hidden {
+    display: none;
+}
+
+.view-toggle-btn {
+    font-size: 11px;
+    padding: 3px 10px;
+    background: #fff;
+    border: none;
+    cursor: pointer;
+    color: #555;
+    line-height: 1.4;
+}
+
+.view-toggle-btn + .view-toggle-btn {
+    border-left: 1px solid #d0d7de;
+}
+
+.view-toggle-btn.active {
+    background: #3273dc;
+    color: #fff;
+}
+
+/* Rendered HTML preview iframe fills the content area edge to edge */
+.content > .html-preview {
+    margin: 0;
+    height: 100%;
+}
+
+.html-preview-frame {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+    background: #fff;
+}
+
 article {
     flex: 1;
     overflow-y: auto;

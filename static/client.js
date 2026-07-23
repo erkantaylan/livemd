@@ -81,6 +81,9 @@
     const contentHeaderFilename = document.getElementById('content-header-filename');
     const contentHeaderPath = document.getElementById('content-header-path');
     const contentHeaderChanged = document.getElementById('content-header-changed');
+    const viewToggle = document.getElementById('view-toggle');
+    const viewPreviewBtn = document.getElementById('view-preview-btn');
+    const viewSourceBtn = document.getElementById('view-source-btn');
 
     let ws;
     let reconnectDelay = 1000;
@@ -513,7 +516,56 @@
         return div.innerHTML;
     }
 
+    // --- HTML view toggle: "Preview" renders the page in an iframe served from
+    // /raw; "Source" shows the server's syntax-highlighted code view. ---
+    const htmlViewModes = {}; // path -> 'preview' | 'source', remembered per file
+
+    function isHtmlFile(path) {
+        return /\.html?$/i.test(path || '');
+    }
+
+    function htmlViewMode(path) {
+        return htmlViewModes[path] || 'preview';
+    }
+
+    function updateViewToggle(file) {
+        if (file && isHtmlFile(file.path)) {
+            viewToggle.classList.remove('is-hidden');
+            const mode = htmlViewMode(file.path);
+            viewPreviewBtn.classList.toggle('active', mode === 'preview');
+            viewSourceBtn.classList.toggle('active', mode === 'source');
+        } else {
+            viewToggle.classList.add('is-hidden');
+        }
+    }
+
+    // Single place that puts a file's content on screen. HTML files in preview
+    // mode get an iframe (the timestamp query busts cache on live updates);
+    // everything else uses the server-rendered HTML.
+    function renderContent(file) {
+        if (isHtmlFile(file.path) && htmlViewMode(file.path) === 'preview') {
+            const bust = file.lastChange ? new Date(file.lastChange).getTime() : 0;
+            const src = '/raw?path=' + encodeURIComponent(file.path) + '&t=' + bust;
+            content.innerHTML = '<div class="html-preview"><iframe class="html-preview-frame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" src="' + escapeHtml(src) + '"></iframe></div>';
+        } else {
+            content.innerHTML = file.html;
+            enhanceContent(content);
+        }
+        updateViewToggle(file);
+    }
+
+    function setHtmlViewMode(mode) {
+        if (!activeFile) return;
+        htmlViewModes[activeFile] = mode;
+        const file = files.find(f => f.path === activeFile);
+        if (file && file.html) renderContent(file);
+    }
+
+    viewPreviewBtn.addEventListener('click', () => setHtmlViewMode('preview'));
+    viewSourceBtn.addEventListener('click', () => setHtmlViewMode('source'));
+
     function updateContentHeader(file) {
+        updateViewToggle(file);
         if (file) {
             contentHeaderFilename.textContent = file.name;
             contentHeaderPath.textContent = file.path;
@@ -534,8 +586,7 @@
         renderFileList();
 
         if (file && file.html) {
-            content.innerHTML = file.html;
-            enhanceContent(content);
+            renderContent(file);
             document.title = file.name + ' - LiveMD';
             updateContentHeader(file);
         }
@@ -592,8 +643,7 @@
                     } else if (activeFile) {
                         const file = files.find(f => f.path === activeFile);
                         if (file && file.html && !file.deleted) {
-                            content.innerHTML = file.html;
-                            enhanceContent(content);
+                            renderContent(file);
                             updateContentHeader(file);
                         } else if (file && file.deleted) {
                             content.innerHTML = `
@@ -633,10 +683,9 @@
                         renderFileList();
 
                         if (data.file.path === activeFile) {
-                            const scrollY = window.scrollY;
-                            content.innerHTML = data.file.html;
-                            enhanceContent(content);
-                            window.scrollTo(0, scrollY);
+                            const scrollY = content.scrollTop;
+                            renderContent(data.file);
+                            content.scrollTop = scrollY;
                         }
                     }
                     break;
