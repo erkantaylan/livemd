@@ -27,6 +27,11 @@
             </ul>
         </div>
         <div class="tab-content" id="files-tab">
+            <div class="add-path-bar">
+                <input class="input is-small" id="add-path-input" placeholder="/path/to/file-or-folder" spellcheck="false">
+                <button class="button is-small" id="add-path-btn" title="Track this path">Add</button>
+            </div>
+            <div class="add-path-error is-hidden" id="add-path-error"></div>
             <div id="deleted-bar" class="deleted-bar is-hidden">
                 <button class="button is-small is-danger is-outlined" id="remove-deleted-btn">Remove all deleted</button>
             </div>

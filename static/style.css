@@ -304,6 +304,33 @@ main {
     flex-direction: column;
 }
 
+/* Add-path bar in the Files tab */
+.add-path-bar {
+    display: flex;
+    gap: 4px;
+    padding: 6px 8px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.add-path-bar .input {
+    flex: 1;
+    font-size: 11px;
+    font-family: monospace;
+}
+
+.add-path-error {
+    padding: 4px 8px;
+    font-size: 11px;
+    color: #cc0f35;
+    background: #feecf0;
+    border-bottom: 1px solid #f5c6cb;
+    word-break: break-all;
+}
+
+.add-path-error.is-hidden {
+    display: none;
+}
+
 /* Content header / toolbar */
 .content-header {
     padding: 6px 16px;

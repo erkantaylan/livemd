@@ -84,6 +84,9 @@
     const viewToggle = document.getElementById('view-toggle');
     const viewPreviewBtn = document.getElementById('view-preview-btn');
     const viewSourceBtn = document.getElementById('view-source-btn');
+    const addPathInput = document.getElementById('add-path-input');
+    const addPathBtn = document.getElementById('add-path-btn');
+    const addPathError = document.getElementById('add-path-error');
 
     let ws;
     let reconnectDelay = 1000;
@@ -100,6 +103,99 @@
     }
     let collapsedFolders = new Set();
     let changelogLoaded = false;
+
+    // --- Deep links: the URL always mirrors the selected file (?file=<path>),
+    // so any page state is copy-pasteable. Opening a link to an untracked file
+    // auto-tracks it via /api/watch. ---
+    let pendingUrlFile = new URLSearchParams(location.search).get('file');
+
+    function syncUrl(path) {
+        const url = path ? '/?file=' + encodeURIComponent(path) : '/';
+        history.replaceState(null, '', url);
+    }
+
+    function showOpenError(path, msg) {
+        content.innerHTML = `
+            <div class="welcome">
+                <h1 class="has-text-danger">Cannot open file</h1>
+                <p><code>${escapeHtml(path)}</code></p>
+                <p>${escapeHtml(msg)}</p>
+            </div>
+        `;
+        updateContentHeader(null);
+    }
+
+    // addPath tracks a file via the API; if the path turns out to be a
+    // directory, falls back to following it as a folder.
+    function addPath(path) {
+        return fetch('/api/watch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path, active: true }),
+        }).then(r => {
+            if (r.ok) return { ok: true };
+            return r.text().then(msg => {
+                if (msg.indexOf('is a directory') !== -1) {
+                    return fetch('/api/folders', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path: path }),
+                    }).then(fr => fr.ok ? { ok: true, folder: true } : fr.text().then(fm => ({ ok: false, msg: fm })));
+                }
+                return { ok: false, msg: msg };
+            });
+        }).catch(err => ({ ok: false, msg: String(err) }));
+    }
+
+    // resolvePendingUrlFile is called on every files broadcast until the
+    // deep-linked file is selected or adding it failed.
+    function resolvePendingUrlFile() {
+        if (!pendingUrlFile) return false;
+        const match = files.find(f => f.path === pendingUrlFile && !f.deleted);
+        if (match) {
+            const target = pendingUrlFile;
+            pendingUrlFile = null;
+            selectFile(target);
+            return true;
+        }
+        if (!resolvePendingUrlFile.tried) {
+            resolvePendingUrlFile.tried = true;
+            const target = pendingUrlFile;
+            addPath(target).then(res => {
+                if (!res.ok) {
+                    pendingUrlFile = null;
+                    showOpenError(target, res.msg || 'Could not track this path.');
+                }
+                // On success the server broadcasts a files update, which
+                // re-enters resolvePendingUrlFile and selects the file.
+            });
+        }
+        return true; // still resolving — suppress default first-file selection
+    }
+
+    function showAddPathError(msg) {
+        addPathError.textContent = msg;
+        addPathError.classList.remove('is-hidden');
+    }
+
+    function submitAddPath() {
+        const path = addPathInput.value.trim();
+        if (!path) return;
+        addPathError.classList.add('is-hidden');
+        addPath(path).then(res => {
+            if (res.ok) {
+                addPathInput.value = '';
+                if (!res.folder) pendingUrlFile = pendingUrlFile || path;
+            } else {
+                showAddPathError(res.msg || 'Failed to add path');
+            }
+        });
+    }
+
+    addPathBtn.addEventListener('click', submitAddPath);
+    addPathInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') submitAddPath();
+    });
 
     // Tab switching
     document.querySelectorAll('.tabs li').forEach(li => {
@@ -583,6 +679,7 @@
 
         const previousFile = activeFile;
         activeFile = path;
+        syncUrl(path);
         renderFileList();
 
         if (file && file.html) {
@@ -637,7 +734,9 @@
                     folders = data.folders || [];
                     renderFileList();
 
-                    if (!activeFile && files.length > 0) {
+                    if (resolvePendingUrlFile()) {
+                        // deep-linked file selected (or still being tracked)
+                    } else if (!activeFile && files.length > 0) {
                         const firstNonDeleted = files.find(f => !f.deleted);
                         if (firstNonDeleted) selectFile(firstNonDeleted.path);
                     } else if (activeFile) {
@@ -696,6 +795,7 @@
 
                     if (data.path === activeFile) {
                         activeFile = null;
+                        syncUrl(null);
                         const remaining = files.filter(f => !f.deleted);
                         if (remaining.length > 0) {
                             selectFile(remaining[0].path);

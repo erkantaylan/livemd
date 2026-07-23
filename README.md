@@ -130,6 +130,8 @@ livemd add docs/demo.md
 - **Lazy watching** - Files are registered but only actively watched when selected
 - **Many viewers** - Markdown (GFM + mermaid + KaTeX math), 50+ syntax-highlighted code languages, images, PDFs, audio, video, CSV/TSV as tables
 - **HTML preview/source toggle** - View `.html` files rendered as a live page or as highlighted source code
+- **Copy-pasteable URLs** - The address bar always points at the selected file (`/?file=<path>`); opening a link to an untracked file tracks it automatically
+- **Add from the browser** - Track a file or folder by typing its path in the sidebar
 - **WebSocket live updates** - No page refresh needed
 - **Self-update** - `livemd install` pulls the latest GitHub release in place
 - **Cross-platform** - Linux, macOS, Windows (background daemon on all three)
