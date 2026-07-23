@@ -23,6 +23,7 @@ import (
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer"
 	goldmarkhtml "github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
 )
 
@@ -44,14 +45,15 @@ func NewRenderer() *Renderer {
 		),
 		goldmark.WithParserOptions(
 			parser.WithAutoHeadingID(),
+			parser.WithASTTransformers(
+				util.Prioritized(&mermaidTransformer{}, 100),
+			),
 		),
 		goldmark.WithRendererOptions(
 			goldmarkhtml.WithHardWraps(),
 			goldmarkhtml.WithUnsafe(),
 			renderer.WithNodeRenderers(
-				// Priority lower than goldmark-highlighting (which uses 100) so we
-				// intercept "mermaid" fences before they hit chroma.
-				util.Prioritized(&mermaidRenderer{}, 99),
+				util.Prioritized(&mermaidRenderer{}, 100),
 			),
 		),
 	)
@@ -59,23 +61,55 @@ func NewRenderer() *Renderer {
 	return &Renderer{md: md}
 }
 
-// mermaidRenderer turns ```mermaid``` fenced code blocks into divs that
-// client-side mermaid.js can pick up. Other languages fall through to the
-// default highlighting renderer.
+// Mermaid support works in two stages: an AST transformer swaps ```mermaid
+// fences for a dedicated mermaidBlock node at parse time, and a renderer emits
+// those nodes as <div class="mermaid"> for client-side mermaid.js. Registering
+// a renderer for the shared FencedCodeBlock kind instead would displace
+// goldmark-highlighting entirely — goldmark keeps one render func per node
+// kind — silently dropping every non-mermaid code block.
+type mermaidBlock struct {
+	ast.BaseBlock
+}
+
+var kindMermaidBlock = ast.NewNodeKind("MermaidBlock")
+
+func (n *mermaidBlock) Kind() ast.NodeKind { return kindMermaidBlock }
+
+func (n *mermaidBlock) Dump(source []byte, level int) {
+	ast.DumpHelper(n, source, level, nil, nil)
+}
+
+type mermaidTransformer struct{}
+
+func (t *mermaidTransformer) Transform(doc *ast.Document, reader text.Reader, pc parser.Context) {
+	source := reader.Source()
+	var fences []*ast.FencedCodeBlock
+	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if entering {
+			if cb, ok := n.(*ast.FencedCodeBlock); ok && string(cb.Language(source)) == "mermaid" {
+				fences = append(fences, cb)
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+	for _, cb := range fences {
+		mb := &mermaidBlock{}
+		mb.SetLines(cb.Lines())
+		cb.Parent().ReplaceChild(cb.Parent(), cb, mb)
+	}
+}
+
 type mermaidRenderer struct{}
 
 func (r *mermaidRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
-	reg.Register(ast.KindFencedCodeBlock, r.render)
+	reg.Register(kindMermaidBlock, r.render)
 }
 
 func (r *mermaidRenderer) render(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	n := node.(*ast.FencedCodeBlock)
-	if string(n.Language(source)) != "mermaid" {
-		return ast.WalkContinue, nil
-	}
 	if !entering {
 		return ast.WalkContinue, nil
 	}
+	n := node.(*mermaidBlock)
 	w.WriteString(`<div class="mermaid">`)
 	for i := 0; i < n.Lines().Len(); i++ {
 		line := n.Lines().At(i)
