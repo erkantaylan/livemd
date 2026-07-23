@@ -111,6 +111,17 @@ make unwatch f1       Remove files from watch
 make list             List watched files
 ```
 
+## Demo
+
+The repo ships a feature showcase that exercises every viewer — GFM tables and
+task lists, syntax-highlighted code, KaTeX math (inline + display), 12 mermaid
+diagram types plus oversized/invalid ones for limit testing, embedded images,
+and inline SVG:
+
+```bash
+livemd add docs/demo.md
+```
+
 ## Features
 
 - **Persistent server** - Start once, add files anytime; state survives restart
