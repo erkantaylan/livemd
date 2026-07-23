@@ -48,12 +48,18 @@ func NewRenderer() *Renderer {
 			parser.WithASTTransformers(
 				util.Prioritized(&mermaidTransformer{}, 100),
 			),
+			parser.WithBlockParsers(
+				// Before the paragraph parser (1000) so $$ blocks are claimed
+				// whole — setext/thematic rules never see their inner lines.
+				util.Prioritized(&mathBlockParser{}, 750),
+			),
 		),
 		goldmark.WithRendererOptions(
 			goldmarkhtml.WithHardWraps(),
 			goldmarkhtml.WithUnsafe(),
 			renderer.WithNodeRenderers(
 				util.Prioritized(&mermaidRenderer{}, 100),
+				util.Prioritized(&mathBlockRenderer{}, 100),
 			),
 		),
 	)
@@ -97,6 +103,87 @@ func (t *mermaidTransformer) Transform(doc *ast.Document, reader text.Reader, pc
 		mb.SetLines(cb.Lines())
 		cb.Parent().ReplaceChild(cb.Parent(), cb, mb)
 	}
+}
+
+// Display math ($$ ... $$) is parsed as its own block, like a code fence.
+// Left to the default pipeline, the formula's inner lines are exposed to
+// markdown block rules — a lone "=" line turns the preceding lines into a
+// setext heading — and WithHardWraps splits the text across <br> tags, which
+// client-side KaTeX auto-render cannot match a $$ pair across. Claiming the
+// whole block and emitting its raw source keeps the formula intact for KaTeX.
+type mathBlock struct {
+	ast.BaseBlock
+	closed bool
+}
+
+var kindMathBlock = ast.NewNodeKind("MathBlock")
+
+func (n *mathBlock) Kind() ast.NodeKind { return kindMathBlock }
+
+func (n *mathBlock) Dump(source []byte, level int) {
+	ast.DumpHelper(n, source, level, nil, nil)
+}
+
+type mathBlockParser struct{}
+
+func (b *mathBlockParser) Trigger() []byte {
+	return []byte{'$'}
+}
+
+func (b *mathBlockParser) Open(parent ast.Node, reader text.Reader, pc parser.Context) (ast.Node, parser.State) {
+	line, segment := reader.PeekLine()
+	pos := pc.BlockOffset()
+	if pos < 0 || pos+1 >= len(line) || line[pos] != '$' || line[pos+1] != '$' {
+		return nil, parser.NoChildren
+	}
+	node := &mathBlock{}
+	node.Lines().Append(segment)
+	// $$...$$ on a single line closes immediately.
+	if trimmed := bytes.TrimSpace(line[pos+2:]); len(trimmed) >= 2 && bytes.HasSuffix(trimmed, []byte("$$")) {
+		node.closed = true
+	}
+	reader.Advance(segment.Len() - 1)
+	return node, parser.NoChildren
+}
+
+func (b *mathBlockParser) Continue(node ast.Node, reader text.Reader, pc parser.Context) parser.State {
+	n := node.(*mathBlock)
+	if n.closed {
+		return parser.Close
+	}
+	line, segment := reader.PeekLine()
+	node.Lines().Append(segment)
+	if trimmed := bytes.TrimSpace(line); bytes.HasSuffix(trimmed, []byte("$$")) {
+		n.closed = true
+	}
+	reader.Advance(segment.Len() - 1)
+	return parser.Continue | parser.NoChildren
+}
+
+func (b *mathBlockParser) Close(node ast.Node, reader text.Reader, pc parser.Context) {}
+
+func (b *mathBlockParser) CanInterruptParagraph() bool { return false }
+
+func (b *mathBlockParser) CanAcceptIndentedLine() bool { return false }
+
+type mathBlockRenderer struct{}
+
+func (r *mathBlockRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
+	reg.Register(kindMathBlock, r.render)
+}
+
+func (r *mathBlockRenderer) render(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+	n := node.(*mathBlock)
+	w.WriteString(`<div class="math-display">`)
+	for i := 0; i < n.Lines().Len(); i++ {
+		line := n.Lines().At(i)
+		w.Write(util.EscapeHTML(line.Value(source)))
+	}
+	w.WriteString(`</div>`)
+	return ast.WalkSkipChildren, nil
 }
 
 type mermaidRenderer struct{}

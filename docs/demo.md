@@ -118,7 +118,7 @@ graph TD
     A[CLI: livemd add] --> B{File type?}
     B -->|markdown| C[goldmark]
     B -->|code| D[chroma]
-    B -->|media| E[/raw endpoint]
+    B -->|media| E["/raw endpoint"]
     C --> F[Browser]
     D --> F
     E --> F
