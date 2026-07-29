@@ -684,32 +684,80 @@
         }
     }
 
-    // Raw renders are fetched on demand (the WebSocket only carries the
-    // preview render) and cached until the file changes on disk.
-    const rawCache = {};
+    // --- Content is fetched per file on demand. The WebSocket carries only
+    // metadata, so the daemon never holds a render in memory and a 40MB file
+    // costs nothing until you actually open it. ---
+    const CACHE_LIMIT = 10;
+    const contentCache = new Map(); // "path|mode" -> html, insertion-ordered
 
-    function renderRawView(file) {
+    function cacheKey(path, mode) {
+        return path + '|' + mode;
+    }
+
+    function cachePut(key, html) {
+        contentCache.set(key, html);
+        while (contentCache.size > CACHE_LIMIT) {
+            contentCache.delete(contentCache.keys().next().value);
+        }
+    }
+
+    function invalidateCache(path) {
+        for (const key of [...contentCache.keys()]) {
+            if (key.slice(0, key.lastIndexOf('|')) === path) contentCache.delete(key);
+        }
+    }
+
+    // fetchAndShow renders the given file+mode into the content area. Raw view
+    // deliberately skips enhanceContent: mermaid and KaTeX must not run over
+    // source text, or a $$...$$ block in raw markdown would be silently
+    // replaced by rendered math.
+    function fetchAndShow(file, mode, keepScroll) {
+        const key = cacheKey(file.path, mode);
+        const stale = () => file.path !== activeFile || effectiveMode(file.path) !== mode;
+
         const apply = html => {
-            if (file.path !== activeFile || viewMode(file.path) !== 'raw') return;
-            const scrollY = content.scrollTop;
+            if (stale()) return;
+            const scrollY = keepScroll ? content.scrollTop : 0;
             content.innerHTML = html;
+            if (mode !== 'raw') enhanceContent(content);
             content.scrollTop = scrollY;
             updateSubheader(file);
+            updateViewToggle(file);
         };
-        if (rawCache[file.path] !== undefined) {
-            apply(rawCache[file.path]);
+
+        if (contentCache.has(key)) {
+            apply(contentCache.get(key));
             return;
         }
-        fetch('/api/render?mode=raw&path=' + encodeURIComponent(file.path))
-            .then(r => r.json())
+
+        // Only show a placeholder if the fetch is slow enough to notice,
+        // so small files don't flash.
+        const spinner = setTimeout(() => {
+            if (!stale()) content.innerHTML = '<div class="loading-state">Loading ' + escapeHtml(file.name) + '…</div>';
+        }, 150);
+
+        const url = '/api/render?path=' + encodeURIComponent(file.path) + (mode === 'raw' ? '&mode=raw' : '');
+        fetch(url)
+            .then(r => {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
             .then(d => {
-                rawCache[file.path] = d.html;
+                clearTimeout(spinner);
+                cachePut(key, d.html);
                 apply(d.html);
             })
-            .catch(err => console.error('Failed to load raw view:', err));
-        // Deliberately no enhanceContent here: mermaid and KaTeX must not run
-        // over source text, or a $$...$$ block in the raw markdown would be
-        // silently replaced by rendered math.
+            .catch(err => {
+                clearTimeout(spinner);
+                console.error('Failed to render:', err);
+                if (!stale()) showOpenError(file.path, 'Could not render this file.');
+            });
+    }
+
+    // effectiveMode collapses the view choice to what actually gets fetched:
+    // HTML preview is an iframe, not a render, so it never hits the cache.
+    function effectiveMode(path) {
+        return hasTwoViews(path) && viewMode(path) === 'raw' ? 'raw' : 'preview';
     }
 
     // currentLineTotal reads the invisible marker the server embeds in source
@@ -794,22 +842,18 @@
     // source render; HTML preview gets a sandboxed iframe (the timestamp query
     // busts cache on live updates); everything else uses the HTML the server
     // already broadcast.
-    function renderContent(file) {
-        if (hasTwoViews(file.path) && viewMode(file.path) === 'raw') {
-            renderRawView(file);
-            updateViewToggle(file);
-            return;
-        }
-        if (isHtmlFile(file.path)) {
+    function renderContent(file, keepScroll) {
+        // HTML in preview mode is the file itself in a sandboxed iframe — no
+        // render needed, the browser loads it straight from /raw.
+        if (isHtmlFile(file.path) && viewMode(file.path) === 'preview') {
             const bust = file.lastChange ? new Date(file.lastChange).getTime() : 0;
             const src = '/raw?path=' + encodeURIComponent(file.path) + '&t=' + bust;
             content.innerHTML = '<div class="html-preview"><iframe class="html-preview-frame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" src="' + escapeHtml(src) + '"></iframe></div>';
-        } else {
-            content.innerHTML = file.html;
-            enhanceContent(content);
+            updateViewToggle(file);
+            updateSubheader(file);
+            return;
         }
-        updateViewToggle(file);
-        updateSubheader(file);
+        fetchAndShow(file, effectiveMode(file.path), keepScroll);
     }
 
     function setViewMode(mode) {
@@ -822,7 +866,7 @@
         saveViewModes();
         syncUrl(activeFile);
         const file = files.find(f => f.path === activeFile);
-        if (file && file.html) renderContent(file);
+        if (file) renderContent(file);
     }
 
     viewPreviewBtn.addEventListener('click', () => setViewMode('preview'));
@@ -851,7 +895,7 @@
         syncUrl(path);
         renderFileList();
 
-        if (file && file.html) {
+        if (file) {
             renderContent(file);
             document.title = file.name + ' - LiveMD';
             updateContentHeader(file);
@@ -910,8 +954,11 @@
                         if (firstNonDeleted) selectFile(firstNonDeleted.path);
                     } else if (activeFile) {
                         const file = files.find(f => f.path === activeFile);
-                        if (file && file.html && !file.deleted) {
-                            renderContent(file);
+                        if (file && !file.deleted) {
+                            // Metadata-only broadcast (another file was added,
+                            // activated, ...) — served from cache, and
+                            // keepScroll stops it jumping to the top.
+                            renderContent(file, true);
                             updateContentHeader(file);
                         } else if (file && file.deleted) {
                             content.innerHTML = `
@@ -942,7 +989,7 @@
 
                 case 'update':
                     if (data.file) {
-                        delete rawCache[data.file.path]; // stale after an edit
+                        invalidateCache(data.file.path); // stale after an edit
                         const idx = files.findIndex(f => f.path === data.file.path);
                         if (idx >= 0) {
                             files[idx] = data.file;
@@ -952,9 +999,8 @@
                         renderFileList();
 
                         if (data.file.path === activeFile) {
-                            const scrollY = content.scrollTop;
-                            renderContent(data.file);
-                            content.scrollTop = scrollY;
+                            // Scroll is restored inside the fetch callback.
+                            renderContent(data.file, true);
                         }
                     }
                     break;

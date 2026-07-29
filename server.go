@@ -28,7 +28,6 @@ type WatchedFile struct {
 	Name       string    `json:"name"`
 	TrackTime  time.Time `json:"trackTime"`
 	LastChange time.Time `json:"lastChange"`
-	HTML       string    `json:"html,omitempty"`
 	Active     bool      `json:"active"`  // true if actively being watched by fsnotify
 	Deleted    bool      `json:"deleted"` // true if file was deleted from disk
 }
@@ -340,6 +339,14 @@ func (h *Hub) AddFileWithActive(path string, active bool) error {
 		return err
 	}
 
+	// Directories are followed, not watched as files. The CLI catches this
+	// earlier; the browser's add-path box relies on this message to know it
+	// should retry against /api/folders.
+	if info.IsDir() {
+		h.mu.Unlock()
+		return fmt.Errorf("%s is a directory", filepath.Base(path))
+	}
+
 	// Refuse oversized files at the door so they never clutter the list.
 	// Media is exempt: the browser streams it from /raw, so size costs the
 	// daemon nothing. Folder discovery drops the error, hence the log line.
@@ -351,19 +358,14 @@ func (h *Hub) AddFileWithActive(path string, active bool) error {
 		return fmt.Errorf("%s", msg)
 	}
 
-	// Render content
-	html, err := h.renderer.Render(path)
-	if err != nil {
-		h.mu.Unlock()
-		return err
-	}
-
+	// Content is deliberately NOT rendered here — the client fetches the
+	// active file from /api/render. Rendering eagerly meant holding every
+	// watched file's HTML in memory and re-broadcasting it on each list update.
 	file := &WatchedFile{
 		Path:       path,
 		Name:       filepath.Base(path),
 		TrackTime:  time.Now(),
 		LastChange: info.ModTime(),
-		HTML:       html,
 		Active:     active,
 	}
 	h.files[path] = file
@@ -404,16 +406,12 @@ func (h *Hub) startWatcher(path string) {
 			return
 		}
 
-		html, err := h.renderer.Render(path)
-		if err != nil {
-			h.logger.Error(fmt.Sprintf("Error rendering %s: %v", filepath.Base(path), err))
-			h.mu.Unlock()
-			return
-		}
-
+		// Only metadata changes here; the update message tells the client its
+		// cached render is stale so it can refetch if the file is on screen.
 		info, _ := os.Stat(path)
-		f.HTML = html
-		f.LastChange = info.ModTime()
+		if info != nil {
+			f.LastChange = info.ModTime()
+		}
 		f.Deleted = false // file is back if it was marked deleted
 		h.mu.Unlock()
 
@@ -460,16 +458,9 @@ func (h *Hub) ActivateFile(path string) error {
 		return nil // Already active
 	}
 
-	// Refresh content before activating
-	html, err := h.renderer.Render(actualPath)
-	if err != nil {
-		h.mu.Unlock()
-		return err
+	if info, err := os.Stat(actualPath); err == nil {
+		file.LastChange = info.ModTime()
 	}
-
-	info, _ := os.Stat(actualPath)
-	file.HTML = html
-	file.LastChange = info.ModTime()
 	file.Active = true
 	h.mu.Unlock()
 

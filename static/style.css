@@ -391,6 +391,13 @@ main {
     display: none;
 }
 
+/* Placeholder while a large file's render is in flight */
+.loading-state {
+    padding: 32px;
+    color: #888;
+    font-size: 13px;
+}
+
 /* Content subheader: line counts, load-more controls, copy */
 .content-subheader {
     display: flex;
