@@ -88,6 +88,10 @@
     const addPathBtn = document.getElementById('add-path-btn');
     const addPathError = document.getElementById('add-path-error');
     const copyBtn = document.getElementById('copy-btn');
+    const contentSubheader = document.getElementById('content-subheader');
+    const lineInfo = document.getElementById('line-info');
+    const loadMoreBtn = document.getElementById('load-more-btn');
+    const loadAllBtn = document.getElementById('load-all-btn');
 
     let ws;
     let reconnectDelay = 1000;
@@ -650,17 +654,29 @@
                 content.innerHTML = d.html;
                 enhanceContent(content);
                 content.scrollTop = scrollY;
+                updateSubheader(files.find(f => f.path === path));
             })
             .catch(err => console.error('Failed to load more lines:', err));
     }
 
-    content.addEventListener('click', e => {
-        const isMore = e.target.classList.contains('load-more-btn');
-        const isAll = e.target.classList.contains('load-all-btn');
-        if ((!isMore && !isAll) || !activeFile) return;
-        const notice = e.target.closest('.truncation-notice');
-        const shown = notice ? parseInt(notice.dataset.shown, 10) : 0;
-        loadExpanded(activeFile, isAll ? 0 : shown + 1000);
+    // currentLineCounts reads the invisible marker the server embeds in code
+    // renders; null for viewers without line counts (markdown, media, ...).
+    function currentLineCounts() {
+        const marker = content.querySelector('.line-info');
+        if (!marker) return null;
+        return {
+            shown: parseInt(marker.dataset.shown, 10),
+            total: parseInt(marker.dataset.total, 10),
+        };
+    }
+
+    loadMoreBtn.addEventListener('click', () => {
+        const counts = currentLineCounts();
+        if (activeFile && counts) loadExpanded(activeFile, counts.shown + 1000);
+    });
+
+    loadAllBtn.addEventListener('click', () => {
+        if (activeFile) loadExpanded(activeFile, 0);
     });
 
     // --- Copy button: fetches the raw file and puts it on the clipboard.
@@ -705,13 +721,43 @@
             });
     });
 
-    function updateCopyBtn(file) {
-        if (file && !mediaExtRe.test(file.path)) {
-            copyBtn.classList.remove('is-hidden');
+    // updateSubheader keeps the second header row in sync: line counts and
+    // load controls for truncated code files, Copy for anything text-based.
+    // Hidden entirely for media files and the welcome screen.
+    function updateSubheader(file) {
+        if (!file || mediaExtRe.test(file.path)) {
+            contentSubheader.classList.add('is-hidden');
+            return;
+        }
+        contentSubheader.classList.remove('is-hidden');
+        const counts = currentLineCounts();
+        if (counts) {
+            const truncated = counts.shown < counts.total;
+            lineInfo.textContent = truncated
+                ? counts.shown.toLocaleString() + ' / ' + counts.total.toLocaleString() + ' lines visible'
+                : counts.total.toLocaleString() + ' lines';
+            loadMoreBtn.classList.toggle('is-hidden', !truncated);
+            loadAllBtn.classList.toggle('is-hidden', !truncated);
         } else {
-            copyBtn.classList.add('is-hidden');
+            lineInfo.textContent = '';
+            loadMoreBtn.classList.add('is-hidden');
+            loadAllBtn.classList.add('is-hidden');
         }
     }
+
+    // Ctrl+A selects only the rendered content, not the whole page chrome.
+    document.addEventListener('keydown', e => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+            const t = e.target;
+            if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
+            e.preventDefault();
+            const range = document.createRange();
+            range.selectNodeContents(content);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+    });
 
     // Single place that puts a file's content on screen. HTML files in preview
     // mode get an iframe (the timestamp query busts cache on live updates);
@@ -729,7 +775,7 @@
             enhanceContent(content);
         }
         updateViewToggle(file);
-        updateCopyBtn(file);
+        updateSubheader(file);
     }
 
     function setHtmlViewMode(mode) {
@@ -744,7 +790,7 @@
 
     function updateContentHeader(file) {
         updateViewToggle(file);
-        updateCopyBtn(file);
+        updateSubheader(file);
         if (file) {
             contentHeaderFilename.textContent = file.name;
             contentHeaderPath.textContent = file.path;

@@ -294,23 +294,18 @@ func (r *Renderer) renderCode(path string, content []byte, limit int) (string, e
 		return renderPlainText(code, shown, total), nil
 	}
 
-	return buf.String() + truncationNotice(shown, total), nil
+	return buf.String() + lineInfoMarker(shown, total), nil
 }
 
-// truncationNotice emits the interactive "Load more / Load all" banner. The
-// client reads data-shown to compute the next limit and calls /api/render.
-// Empty when the whole file is shown.
-func truncationNotice(shown, total int) string {
-	if shown >= total {
+// lineInfoMarker embeds shown/total line counts in the rendered HTML as an
+// invisible element. The client surfaces them in the always-visible content
+// subheader (with Load more / Load all controls when truncated) — an in-body
+// banner at the bottom of a 1,000-line render was too easy to never see.
+func lineInfoMarker(shown, total int) string {
+	if total == 0 {
 		return ""
 	}
-	return fmt.Sprintf(
-		`<div class="truncation-notice" data-shown="%d" data-total="%d">Showing first %d of %d lines.
-			<button class="load-more-btn">Load 1,000 more</button>
-			<button class="load-all-btn">Load all %d lines</button>
-		</div>`,
-		shown, total, shown, total, total,
-	)
+	return fmt.Sprintf(`<div class="line-info" data-shown="%d" data-total="%d" hidden></div>`, shown, total)
 }
 
 func renderPlainText(code string, shown, total int) string {
@@ -319,7 +314,7 @@ func renderPlainText(code string, shown, total int) string {
 	escaped = strings.ReplaceAll(escaped, ">", "&gt;")
 
 	return `<pre style="background: #f6f8fa; padding: 16px; overflow-x: auto; border-radius: 6px; font-family: monospace; font-size: 14px; line-height: 1.45;"><code>` + escaped + `</code></pre>` +
-		truncationNotice(shown, total)
+		lineInfoMarker(shown, total)
 }
 
 // renderMedia returns embed HTML for image/PDF/audio/video files. The browser

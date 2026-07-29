@@ -391,32 +391,52 @@ main {
     display: none;
 }
 
-/* Truncation notice with load-more controls */
-.truncation-notice {
+/* Content subheader: line counts, load-more controls, copy */
+.content-subheader {
     display: flex;
     align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    padding: 10px 16px;
-    margin: 16px;
-    background: #fff3cd;
-    color: #856404;
-    border-radius: 6px;
-    font-size: 13px;
+    gap: 8px;
+    padding: 4px 16px;
+    background: #fafafa;
+    border-bottom: 1px solid #e0e0e0;
+    font-size: 11px;
+    color: #666;
+    flex-shrink: 0;
 }
 
-.truncation-notice button {
-    font-size: 12px;
-    padding: 3px 12px;
+.content-subheader.is-hidden {
+    display: none;
+}
+
+#line-info {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.subheader-btn {
+    font-size: 11px;
+    padding: 2px 10px;
     background: #fff;
-    border: 1px solid #d4b106;
-    border-radius: 4px;
-    color: #856404;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
     cursor: pointer;
+    color: #555;
+    line-height: 1.4;
+    flex-shrink: 0;
 }
 
-.truncation-notice button:hover {
-    background: #fdf6dd;
+.subheader-btn:hover {
+    background: #f6f8fa;
+    border-color: #3273dc;
+    color: #3273dc;
+}
+
+.subheader-btn.is-hidden {
+    display: none;
+}
+
+.subheader-spacer {
+    margin-left: auto;
 }
 
 /* HTML view toggle (Preview / Source) */
