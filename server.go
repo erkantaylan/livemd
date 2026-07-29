@@ -340,6 +340,17 @@ func (h *Hub) AddFileWithActive(path string, active bool) error {
 		return err
 	}
 
+	// Refuse oversized files at the door so they never clutter the list.
+	// Media is exempt: the browser streams it from /raw, so size costs the
+	// daemon nothing. Folder discovery drops the error, hence the log line.
+	if !isStreamedMedia(path) && info.Size() > maxFileSize {
+		h.mu.Unlock()
+		msg := fmt.Sprintf("%s is %.1f MB, over the %d MB limit",
+			filepath.Base(path), float64(info.Size())/(1<<20), maxFileSize>>20)
+		h.logger.Warn("Skipped: " + msg)
+		return fmt.Errorf("%s", msg)
+	}
+
 	// Render content
 	html, err := h.renderer.Render(path)
 	if err != nil {
@@ -722,8 +733,8 @@ func (s *Server) handleRaw(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, actual)
 }
 
-// handleRender re-renders a watched file with a caller-chosen line limit
-// (lines=0 means the whole file). Backs the "Load more / Load all" buttons.
+// handleRender re-renders a watched file in a caller-chosen view
+// (mode=raw forces the source view). Backs the Preview/Raw toggle.
 // Same allowlist as /raw: only paths already in the watch list.
 func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	requested := r.URL.Query().Get("path")
@@ -731,12 +742,9 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Missing path", http.StatusBadRequest)
 		return
 	}
-	lines := 0
-	if v := r.URL.Query().Get("lines"); v != "" {
-		fmt.Sscanf(v, "%d", &lines)
-	}
-	if lines < 0 {
-		lines = 0
+	mode := modeAuto
+	if r.URL.Query().Get("mode") == "raw" {
+		mode = modeRaw
 	}
 
 	s.hub.mu.RLock()
@@ -753,7 +761,7 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	html, err := s.hub.renderer.RenderWithLimit(actual, lines)
+	html, err := s.hub.renderer.RenderMode(actual, mode)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

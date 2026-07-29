@@ -27,7 +27,28 @@ import (
 	"github.com/yuin/goldmark/util"
 )
 
-const maxLines = 1000
+// maxFileSize caps files the daemon reads into memory (text, code, markdown,
+// tabular). Media is exempt — the browser streams it from /raw, so a 500MB
+// video costs the daemon nothing.
+const maxFileSize = 50 << 20 // 50 MB
+
+// maxHighlightSize caps syntax highlighting. Chroma wraps every token in a
+// span, inflating output roughly 8x — a 47MB file became 374MB of HTML and
+// took the daemon past 5GB. Above this we serve escaped plain text (~1x)
+// instead: still every line, just no colors, which nobody reads at this size.
+const maxHighlightSize = 2 << 20 // 2 MB
+
+// renderMode selects which view of a file to produce.
+type renderMode int
+
+const (
+	// modeAuto picks the viewer by file type: markdown → goldmark, tabular →
+	// table, media → embed, everything else → highlighted source.
+	modeAuto renderMode = iota
+	// modeRaw forces the highlighted-source view, backing the Preview/Raw
+	// toggle for markdown and HTML.
+	modeRaw
+)
 
 // Renderer converts files to HTML
 type Renderer struct {
@@ -207,12 +228,13 @@ func (r *mermaidRenderer) render(w util.BufWriter, source []byte, node ast.Node,
 }
 
 func (r *Renderer) Render(path string) (string, error) {
-	return r.RenderWithLimit(path, maxLines)
+	return r.RenderMode(path, modeAuto)
 }
 
-// RenderWithLimit renders like Render but caps code files at limit lines
-// (0 = no cap). Non-code viewers ignore the limit.
-func (r *Renderer) RenderWithLimit(path string, limit int) (string, error) {
+// RenderMode renders a file in the requested view. Files above maxFileSize get
+// a placeholder instead of content — the guard lives here as well as at add
+// time because a watched file can grow past the limit while being tailed.
+func (r *Renderer) RenderMode(path string, mode renderMode) (string, error) {
 	ext := strings.ToLower(filepath.Ext(path))
 
 	// Media: rendered as <img>/<embed>/<audio>/<video> referencing /raw.
@@ -221,8 +243,12 @@ func (r *Renderer) RenderWithLimit(path string, limit int) (string, error) {
 		return html, nil
 	}
 
-	// Tabular: read and render as HTML table.
-	if ext == ".csv" || ext == ".tsv" {
+	if info, err := os.Stat(path); err == nil && info.Size() > maxFileSize {
+		return renderTooLargeMessage(path, info.Size()), nil
+	}
+
+	// Tabular: read and render as HTML table (raw view shows the source).
+	if mode == modeAuto && (ext == ".csv" || ext == ".tsv") {
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return "", err
@@ -239,11 +265,13 @@ func (r *Renderer) RenderWithLimit(path string, limit int) (string, error) {
 		return renderBinaryMessage(path), nil
 	}
 
-	if isMarkdown(path) {
+	if mode == modeAuto && isMarkdown(path) {
 		return r.renderMarkdown(content)
 	}
 
-	return r.renderCode(path, content, limit)
+	// Line numbers help in code but clutter prose, and they land in the
+	// selection when copying out of the raw markdown view.
+	return r.renderCode(path, content, !isMarkdown(path))
 }
 
 func (r *Renderer) renderMarkdown(content []byte) (string, error) {
@@ -254,14 +282,13 @@ func (r *Renderer) renderMarkdown(content []byte) (string, error) {
 	return buf.String(), nil
 }
 
-func (r *Renderer) renderCode(path string, content []byte, limit int) (string, error) {
-	lines := strings.Split(string(content), "\n")
-	total := len(lines)
-	if limit > 0 && total > limit {
-		lines = lines[:limit]
+func (r *Renderer) renderCode(path string, content []byte, lineNumbers bool) (string, error) {
+	code := string(content)
+	total := strings.Count(code, "\n") + 1
+
+	if len(content) > maxHighlightSize {
+		return renderPlainText(code, total), nil
 	}
-	shown := len(lines)
-	code := strings.Join(lines, "\n")
 
 	// Get lexer
 	lexer := getLexer(path)
@@ -277,7 +304,7 @@ func (r *Renderer) renderCode(path string, content []byte, limit int) (string, e
 	}
 	formatter := html.New(
 		html.WithClasses(false),
-		html.WithLineNumbers(true),
+		html.WithLineNumbers(lineNumbers),
 		html.TabWidth(4),
 	)
 
@@ -285,41 +312,47 @@ func (r *Renderer) renderCode(path string, content []byte, limit int) (string, e
 	iterator, err := lexer.Tokenise(nil, code)
 	if err != nil {
 		// Fall back to plain text
-		return renderPlainText(code, shown, total), nil
+		return renderPlainText(code, total), nil
 	}
 
 	var buf bytes.Buffer
 	err = formatter.Format(&buf, style, iterator)
 	if err != nil {
-		return renderPlainText(code, shown, total), nil
+		return renderPlainText(code, total), nil
 	}
 
-	return buf.String() + lineInfoMarker(shown, total), nil
+	return buf.String() + lineCountMarker(total), nil
 }
 
-// lineInfoMarker embeds shown/total line counts in the rendered HTML as an
-// invisible element. The client surfaces them in the always-visible content
-// subheader (with Load more / Load all controls when truncated) — an in-body
-// banner at the bottom of a 1,000-line render was too easy to never see.
-func lineInfoMarker(shown, total int) string {
+// lineCountMarker embeds the file's line count in the rendered HTML as an
+// invisible element, which the client surfaces in the content subheader.
+func lineCountMarker(total int) string {
 	if total == 0 {
 		return ""
 	}
-	return fmt.Sprintf(`<div class="line-info" data-shown="%d" data-total="%d" hidden></div>`, shown, total)
+	return fmt.Sprintf(`<div class="line-info" data-total="%d" hidden></div>`, total)
 }
 
-func renderPlainText(code string, shown, total int) string {
+func renderPlainText(code string, total int) string {
 	escaped := strings.ReplaceAll(code, "&", "&amp;")
 	escaped = strings.ReplaceAll(escaped, "<", "&lt;")
 	escaped = strings.ReplaceAll(escaped, ">", "&gt;")
 
 	return `<pre style="background: #f6f8fa; padding: 16px; overflow-x: auto; border-radius: 6px; font-family: monospace; font-size: 14px; line-height: 1.45;"><code>` + escaped + `</code></pre>` +
-		lineInfoMarker(shown, total)
+		lineCountMarker(total)
 }
 
 // renderMedia returns embed HTML for image/PDF/audio/video files. The browser
 // fetches the bytes from /raw — the daemon never reads them into memory.
 // Returns ok=false for non-media extensions.
+// isStreamedMedia reports whether a file is served straight from disk to the
+// browser via /raw rather than read into daemon memory. Such files are exempt
+// from maxFileSize — a large video or PDF costs the daemon nothing.
+func isStreamedMedia(path string) bool {
+	_, ok := renderMedia(path, strings.ToLower(filepath.Ext(path)))
+	return ok
+}
+
 func renderMedia(path, ext string) (string, bool) {
 	rawURL := "/raw?path=" + url.QueryEscape(path)
 	name := template.HTMLEscapeString(filepath.Base(path))
@@ -371,7 +404,7 @@ func renderTable(content []byte, tsv bool) string {
 		if err != nil {
 			// Stop on the first parse error rather than silently producing
 			// half a table — fall back to the chroma view.
-			return renderPlainText(string(content), 0, 0)
+			return renderPlainText(string(content), strings.Count(string(content), "\n")+1)
 		}
 		rows = append(rows, row)
 		if len(rows) >= maxTableRows {
@@ -410,6 +443,20 @@ func renderTable(content []byte, tsv bool) string {
 		)
 	}
 	return b.String()
+}
+
+// renderTooLargeMessage is shown instead of content for files over
+// maxFileSize. Media never lands here — it streams from /raw.
+func renderTooLargeMessage(path string, size int64) string {
+	return fmt.Sprintf(`<div style="text-align: center; padding: 40px; color: #666;">
+		<p style="font-size: 48px; margin-bottom: 16px;">&#128207;</p>
+		<p>File too large: %s</p>
+		<p style="color: #999; font-size: 14px; margin-top: 8px;">%.1f MB exceeds the %d MB display limit.</p>
+	</div>`,
+		template.HTMLEscapeString(filepath.Base(path)),
+		float64(size)/(1<<20),
+		maxFileSize>>20,
+	)
 }
 
 func renderBinaryMessage(path string) string {

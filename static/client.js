@@ -83,15 +83,13 @@
     const contentHeaderChanged = document.getElementById('content-header-changed');
     const viewToggle = document.getElementById('view-toggle');
     const viewPreviewBtn = document.getElementById('view-preview-btn');
-    const viewSourceBtn = document.getElementById('view-source-btn');
+    const viewRawBtn = document.getElementById('view-raw-btn');
     const addPathInput = document.getElementById('add-path-input');
     const addPathBtn = document.getElementById('add-path-btn');
     const addPathError = document.getElementById('add-path-error');
     const copyBtn = document.getElementById('copy-btn');
     const contentSubheader = document.getElementById('content-subheader');
     const lineInfo = document.getElementById('line-info');
-    const loadMoreBtn = document.getElementById('load-more-btn');
-    const loadAllBtn = document.getElementById('load-all-btn');
 
     let ws;
     let reconnectDelay = 1000;
@@ -113,9 +111,15 @@
     // so any page state is copy-pasteable. Opening a link to an untracked file
     // auto-tracks it via /api/watch. ---
     let pendingUrlFile = new URLSearchParams(location.search).get('file');
+    const pendingUrlView = new URLSearchParams(location.search).get('view');
 
     function syncUrl(path) {
-        const url = path ? '/?file=' + encodeURIComponent(path) : '/';
+        if (!path) {
+            history.replaceState(null, '', '/');
+            return;
+        }
+        let url = '/?file=' + encodeURIComponent(path);
+        if (hasTwoViews(path) && viewMode(path) === 'raw') url += '&view=raw';
         history.replaceState(null, '', url);
     }
 
@@ -160,6 +164,15 @@
         if (match) {
             const target = pendingUrlFile;
             pendingUrlFile = null;
+            // A ?view= in the link wins over the remembered preference.
+            if (pendingUrlView === 'raw' || pendingUrlView === 'preview') {
+                if (pendingUrlView === 'raw') {
+                    viewModes[target] = 'raw';
+                } else {
+                    delete viewModes[target];
+                }
+                saveViewModes();
+            }
             selectFile(target);
             return true;
         }
@@ -617,67 +630,96 @@
         return div.innerHTML;
     }
 
-    // --- HTML view toggle: "Preview" renders the page in an iframe served from
-    // /raw; "Source" shows the server's syntax-highlighted code view. ---
-    const htmlViewModes = {}; // path -> 'preview' | 'source', remembered per file
+    // --- Preview/Raw toggle. "Preview" is the rendered document (goldmark for
+    // markdown, a sandboxed iframe for HTML); "Raw" is the server's
+    // syntax-highlighted source. The choice is remembered per file in
+    // localStorage, and a ?view= parameter in the URL overrides it. ---
+    const VIEW_STORE_KEY = 'livemd:viewModes';
+
+    function loadViewModes() {
+        try {
+            return JSON.parse(localStorage.getItem(VIEW_STORE_KEY) || '{}') || {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    // Only non-default ('raw') entries are stored, so this stays small and
+    // prunes itself as files are flipped back to Preview.
+    const viewModes = loadViewModes();
+
+    function saveViewModes() {
+        try {
+            localStorage.setItem(VIEW_STORE_KEY, JSON.stringify(viewModes));
+        } catch (e) {
+            /* private mode / quota — the toggle still works for this session */
+        }
+    }
 
     function isHtmlFile(path) {
         return /\.html?$/i.test(path || '');
     }
 
-    function htmlViewMode(path) {
-        return htmlViewModes[path] || 'preview';
+    function isMarkdownFile(path) {
+        return /\.(md|markdown|mdown|mkd)$/i.test(path || '');
+    }
+
+    // File types with both a rendered and a source view.
+    function hasTwoViews(path) {
+        return isHtmlFile(path) || isMarkdownFile(path);
+    }
+
+    function viewMode(path) {
+        return viewModes[path] === 'raw' ? 'raw' : 'preview';
     }
 
     function updateViewToggle(file) {
-        if (file && isHtmlFile(file.path)) {
+        if (file && hasTwoViews(file.path)) {
             viewToggle.classList.remove('is-hidden');
-            const mode = htmlViewMode(file.path);
+            const mode = viewMode(file.path);
             viewPreviewBtn.classList.toggle('active', mode === 'preview');
-            viewSourceBtn.classList.toggle('active', mode === 'source');
+            viewRawBtn.classList.toggle('active', mode === 'raw');
         } else {
             viewToggle.classList.add('is-hidden');
         }
     }
 
-    // --- Truncated code files: "Load more / Load all" re-fetches the render
-    // with a higher line limit; the choice sticks across live updates. ---
-    const expandedLines = {}; // path -> line limit (0 = whole file)
+    // Raw renders are fetched on demand (the WebSocket only carries the
+    // preview render) and cached until the file changes on disk.
+    const rawCache = {};
 
-    function loadExpanded(path, limit) {
-        expandedLines[path] = limit;
-        fetch('/api/render?path=' + encodeURIComponent(path) + '&lines=' + limit)
+    function renderRawView(file) {
+        const apply = html => {
+            if (file.path !== activeFile || viewMode(file.path) !== 'raw') return;
+            const scrollY = content.scrollTop;
+            content.innerHTML = html;
+            content.scrollTop = scrollY;
+            updateSubheader(file);
+        };
+        if (rawCache[file.path] !== undefined) {
+            apply(rawCache[file.path]);
+            return;
+        }
+        fetch('/api/render?mode=raw&path=' + encodeURIComponent(file.path))
             .then(r => r.json())
             .then(d => {
-                if (path !== activeFile) return; // user moved on meanwhile
-                const scrollY = content.scrollTop;
-                content.innerHTML = d.html;
-                enhanceContent(content);
-                content.scrollTop = scrollY;
-                updateSubheader(files.find(f => f.path === path));
+                rawCache[file.path] = d.html;
+                apply(d.html);
             })
-            .catch(err => console.error('Failed to load more lines:', err));
+            .catch(err => console.error('Failed to load raw view:', err));
+        // Deliberately no enhanceContent here: mermaid and KaTeX must not run
+        // over source text, or a $$...$$ block in the raw markdown would be
+        // silently replaced by rendered math.
     }
 
-    // currentLineCounts reads the invisible marker the server embeds in code
-    // renders; null for viewers without line counts (markdown, media, ...).
-    function currentLineCounts() {
+    // currentLineTotal reads the invisible marker the server embeds in source
+    // renders; null for viewers without line counts (markdown preview, media).
+    function currentLineTotal() {
         const marker = content.querySelector('.line-info');
         if (!marker) return null;
-        return {
-            shown: parseInt(marker.dataset.shown, 10),
-            total: parseInt(marker.dataset.total, 10),
-        };
+        const total = parseInt(marker.dataset.total, 10);
+        return isNaN(total) ? null : total;
     }
-
-    loadMoreBtn.addEventListener('click', () => {
-        const counts = currentLineCounts();
-        if (activeFile && counts) loadExpanded(activeFile, counts.shown + 1000);
-    });
-
-    loadAllBtn.addEventListener('click', () => {
-        if (activeFile) loadExpanded(activeFile, 0);
-    });
 
     // --- Copy button: fetches the raw file and puts it on the clipboard.
     // Hidden for media files, where "copy the bytes" makes no sense. ---
@@ -721,28 +763,17 @@
             });
     });
 
-    // updateSubheader keeps the second header row in sync: line counts and
-    // load controls for truncated code files, Copy for anything text-based.
-    // Hidden entirely for media files and the welcome screen.
+    // updateSubheader keeps the second header row in sync: the line count where
+    // one is meaningful, plus Copy for anything text-based. Hidden entirely for
+    // media files and the welcome screen.
     function updateSubheader(file) {
         if (!file || mediaExtRe.test(file.path)) {
             contentSubheader.classList.add('is-hidden');
             return;
         }
         contentSubheader.classList.remove('is-hidden');
-        const counts = currentLineCounts();
-        if (counts) {
-            const truncated = counts.shown < counts.total;
-            lineInfo.textContent = truncated
-                ? counts.shown.toLocaleString() + ' / ' + counts.total.toLocaleString() + ' lines visible'
-                : counts.total.toLocaleString() + ' lines';
-            loadMoreBtn.classList.toggle('is-hidden', !truncated);
-            loadAllBtn.classList.toggle('is-hidden', !truncated);
-        } else {
-            lineInfo.textContent = '';
-            loadMoreBtn.classList.add('is-hidden');
-            loadAllBtn.classList.add('is-hidden');
-        }
+        const total = currentLineTotal();
+        lineInfo.textContent = total ? total.toLocaleString() + ' lines' : '';
     }
 
     // Ctrl+A selects only the rendered content, not the whole page chrome.
@@ -759,17 +790,20 @@
         }
     });
 
-    // Single place that puts a file's content on screen. HTML files in preview
-    // mode get an iframe (the timestamp query busts cache on live updates);
-    // expanded code files re-fetch at their chosen line limit; everything else
-    // uses the server-rendered HTML.
+    // Single place that puts a file's content on screen. Raw view fetches the
+    // source render; HTML preview gets a sandboxed iframe (the timestamp query
+    // busts cache on live updates); everything else uses the HTML the server
+    // already broadcast.
     function renderContent(file) {
-        if (isHtmlFile(file.path) && htmlViewMode(file.path) === 'preview') {
+        if (hasTwoViews(file.path) && viewMode(file.path) === 'raw') {
+            renderRawView(file);
+            updateViewToggle(file);
+            return;
+        }
+        if (isHtmlFile(file.path)) {
             const bust = file.lastChange ? new Date(file.lastChange).getTime() : 0;
             const src = '/raw?path=' + encodeURIComponent(file.path) + '&t=' + bust;
             content.innerHTML = '<div class="html-preview"><iframe class="html-preview-frame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" src="' + escapeHtml(src) + '"></iframe></div>';
-        } else if (expandedLines[file.path] !== undefined) {
-            loadExpanded(file.path, expandedLines[file.path]);
         } else {
             content.innerHTML = file.html;
             enhanceContent(content);
@@ -778,15 +812,21 @@
         updateSubheader(file);
     }
 
-    function setHtmlViewMode(mode) {
+    function setViewMode(mode) {
         if (!activeFile) return;
-        htmlViewModes[activeFile] = mode;
+        if (mode === 'raw') {
+            viewModes[activeFile] = 'raw';
+        } else {
+            delete viewModes[activeFile];
+        }
+        saveViewModes();
+        syncUrl(activeFile);
         const file = files.find(f => f.path === activeFile);
         if (file && file.html) renderContent(file);
     }
 
-    viewPreviewBtn.addEventListener('click', () => setHtmlViewMode('preview'));
-    viewSourceBtn.addEventListener('click', () => setHtmlViewMode('source'));
+    viewPreviewBtn.addEventListener('click', () => setViewMode('preview'));
+    viewRawBtn.addEventListener('click', () => setViewMode('raw'));
 
     function updateContentHeader(file) {
         updateViewToggle(file);
@@ -902,6 +942,7 @@
 
                 case 'update':
                     if (data.file) {
+                        delete rawCache[data.file.path]; // stale after an edit
                         const idx = files.findIndex(f => f.path === data.file.path);
                         if (idx >= 0) {
                             files[idx] = data.file;
