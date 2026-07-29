@@ -87,6 +87,7 @@
     const addPathInput = document.getElementById('add-path-input');
     const addPathBtn = document.getElementById('add-path-btn');
     const addPathError = document.getElementById('add-path-error');
+    const copyBtn = document.getElementById('copy-btn');
 
     let ws;
     let reconnectDelay = 1000;
@@ -635,19 +636,100 @@
         }
     }
 
+    // --- Truncated code files: "Load more / Load all" re-fetches the render
+    // with a higher line limit; the choice sticks across live updates. ---
+    const expandedLines = {}; // path -> line limit (0 = whole file)
+
+    function loadExpanded(path, limit) {
+        expandedLines[path] = limit;
+        fetch('/api/render?path=' + encodeURIComponent(path) + '&lines=' + limit)
+            .then(r => r.json())
+            .then(d => {
+                if (path !== activeFile) return; // user moved on meanwhile
+                const scrollY = content.scrollTop;
+                content.innerHTML = d.html;
+                enhanceContent(content);
+                content.scrollTop = scrollY;
+            })
+            .catch(err => console.error('Failed to load more lines:', err));
+    }
+
+    content.addEventListener('click', e => {
+        const isMore = e.target.classList.contains('load-more-btn');
+        const isAll = e.target.classList.contains('load-all-btn');
+        if ((!isMore && !isAll) || !activeFile) return;
+        const notice = e.target.closest('.truncation-notice');
+        const shown = notice ? parseInt(notice.dataset.shown, 10) : 0;
+        loadExpanded(activeFile, isAll ? 0 : shown + 1000);
+    });
+
+    // --- Copy button: fetches the raw file and puts it on the clipboard.
+    // Hidden for media files, where "copy the bytes" makes no sense. ---
+    const mediaExtRe = /\.(png|jpe?g|gif|webp|bmp|ico|avif|svg|pdf|mp3|wav|ogg|oga|m4a|flac|aac|opus|mp4|webm|mov|mkv|m4v)$/i;
+
+    function copyText(text) {
+        if (navigator.clipboard && window.isSecureContext) {
+            return navigator.clipboard.writeText(text);
+        }
+        // Fallback for non-secure contexts (e.g. viewing over LAN IP).
+        return new Promise((resolve, reject) => {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            const ok = document.execCommand('copy');
+            document.body.removeChild(ta);
+            ok ? resolve() : reject(new Error('execCommand copy failed'));
+        });
+    }
+
+    copyBtn.addEventListener('click', () => {
+        if (!activeFile) return;
+        fetch('/raw?path=' + encodeURIComponent(activeFile))
+            .then(r => r.text())
+            .then(copyText)
+            .then(() => {
+                copyBtn.textContent = 'Copied!';
+                copyBtn.classList.add('copied');
+            })
+            .catch(() => {
+                copyBtn.textContent = 'Failed';
+            })
+            .finally(() => {
+                setTimeout(() => {
+                    copyBtn.textContent = 'Copy';
+                    copyBtn.classList.remove('copied');
+                }, 1500);
+            });
+    });
+
+    function updateCopyBtn(file) {
+        if (file && !mediaExtRe.test(file.path)) {
+            copyBtn.classList.remove('is-hidden');
+        } else {
+            copyBtn.classList.add('is-hidden');
+        }
+    }
+
     // Single place that puts a file's content on screen. HTML files in preview
     // mode get an iframe (the timestamp query busts cache on live updates);
-    // everything else uses the server-rendered HTML.
+    // expanded code files re-fetch at their chosen line limit; everything else
+    // uses the server-rendered HTML.
     function renderContent(file) {
         if (isHtmlFile(file.path) && htmlViewMode(file.path) === 'preview') {
             const bust = file.lastChange ? new Date(file.lastChange).getTime() : 0;
             const src = '/raw?path=' + encodeURIComponent(file.path) + '&t=' + bust;
             content.innerHTML = '<div class="html-preview"><iframe class="html-preview-frame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" src="' + escapeHtml(src) + '"></iframe></div>';
+        } else if (expandedLines[file.path] !== undefined) {
+            loadExpanded(file.path, expandedLines[file.path]);
         } else {
             content.innerHTML = file.html;
             enhanceContent(content);
         }
         updateViewToggle(file);
+        updateCopyBtn(file);
     }
 
     function setHtmlViewMode(mode) {
@@ -662,6 +744,7 @@
 
     function updateContentHeader(file) {
         updateViewToggle(file);
+        updateCopyBtn(file);
         if (file) {
             contentHeaderFilename.textContent = file.name;
             contentHeaderPath.textContent = file.path;

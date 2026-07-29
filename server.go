@@ -722,6 +722,46 @@ func (s *Server) handleRaw(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, actual)
 }
 
+// handleRender re-renders a watched file with a caller-chosen line limit
+// (lines=0 means the whole file). Backs the "Load more / Load all" buttons.
+// Same allowlist as /raw: only paths already in the watch list.
+func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
+	requested := r.URL.Query().Get("path")
+	if requested == "" {
+		http.Error(w, "Missing path", http.StatusBadRequest)
+		return
+	}
+	lines := 0
+	if v := r.URL.Query().Get("lines"); v != "" {
+		fmt.Sscanf(v, "%d", &lines)
+	}
+	if lines < 0 {
+		lines = 0
+	}
+
+	s.hub.mu.RLock()
+	var actual string
+	for k := range s.hub.files {
+		if PathsEqual(k, requested) {
+			actual = k
+			break
+		}
+	}
+	s.hub.mu.RUnlock()
+	if actual == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	html, err := s.hub.renderer.RenderWithLimit(actual, lines)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"html": html})
+}
+
 func (s *Server) handleAddFile(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Path   string `json:"path"`
@@ -948,6 +988,7 @@ func StartServer(port int) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]int{"removed": count})
 	})
+	mux.HandleFunc("/api/render", s.handleRender)
 	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/api/releases", s.handleReleases)
 	mux.HandleFunc("/api/version", s.handleVersion)

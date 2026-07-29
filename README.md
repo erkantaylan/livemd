@@ -132,6 +132,7 @@ livemd add docs/demo.md
 - **HTML preview/source toggle** - View `.html` files rendered as a live page or as highlighted source code
 - **Copy-pasteable URLs** - The address bar always points at the selected file (`/?file=<path>`); opening a link to an untracked file tracks it automatically
 - **Add from the browser** - Track a file or folder by typing its path in the sidebar
+- **Big-file friendly** - Code view starts at 1,000 lines with "Load 1,000 more" / "Load all" buttons; a Copy button grabs the whole file
 - **WebSocket live updates** - No page refresh needed
 - **Self-update** - `livemd install` pulls the latest GitHub release in place
 - **Cross-platform** - Linux, macOS, Windows (background daemon on all three)

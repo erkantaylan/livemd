@@ -364,6 +364,61 @@ main {
     margin-left: auto;
 }
 
+/* Copy-file button */
+.copy-btn {
+    font-size: 11px;
+    padding: 3px 10px;
+    background: #fff;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    cursor: pointer;
+    color: #555;
+    line-height: 1.4;
+    flex-shrink: 0;
+}
+
+.copy-btn:hover {
+    background: #f6f8fa;
+}
+
+.copy-btn.copied {
+    background: #48c78e;
+    border-color: #48c78e;
+    color: #fff;
+}
+
+.copy-btn.is-hidden {
+    display: none;
+}
+
+/* Truncation notice with load-more controls */
+.truncation-notice {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+    margin: 16px;
+    background: #fff3cd;
+    color: #856404;
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.truncation-notice button {
+    font-size: 12px;
+    padding: 3px 12px;
+    background: #fff;
+    border: 1px solid #d4b106;
+    border-radius: 4px;
+    color: #856404;
+    cursor: pointer;
+}
+
+.truncation-notice button:hover {
+    background: #fdf6dd;
+}
+
 /* HTML view toggle (Preview / Source) */
 .view-toggle {
     display: inline-flex;

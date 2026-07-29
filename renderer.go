@@ -207,6 +207,12 @@ func (r *mermaidRenderer) render(w util.BufWriter, source []byte, node ast.Node,
 }
 
 func (r *Renderer) Render(path string) (string, error) {
+	return r.RenderWithLimit(path, maxLines)
+}
+
+// RenderWithLimit renders like Render but caps code files at limit lines
+// (0 = no cap). Non-code viewers ignore the limit.
+func (r *Renderer) RenderWithLimit(path string, limit int) (string, error) {
 	ext := strings.ToLower(filepath.Ext(path))
 
 	// Media: rendered as <img>/<embed>/<audio>/<video> referencing /raw.
@@ -237,7 +243,7 @@ func (r *Renderer) Render(path string) (string, error) {
 		return r.renderMarkdown(content)
 	}
 
-	return r.renderCode(path, content)
+	return r.renderCode(path, content, limit)
 }
 
 func (r *Renderer) renderMarkdown(content []byte) (string, error) {
@@ -248,14 +254,13 @@ func (r *Renderer) renderMarkdown(content []byte) (string, error) {
 	return buf.String(), nil
 }
 
-func (r *Renderer) renderCode(path string, content []byte) (string, error) {
-	// Limit lines
+func (r *Renderer) renderCode(path string, content []byte, limit int) (string, error) {
 	lines := strings.Split(string(content), "\n")
-	truncated := false
-	if len(lines) > maxLines {
-		lines = lines[:maxLines]
-		truncated = true
+	total := len(lines)
+	if limit > 0 && total > limit {
+		lines = lines[:limit]
 	}
+	shown := len(lines)
 	code := strings.Join(lines, "\n")
 
 	// Get lexer
@@ -280,39 +285,41 @@ func (r *Renderer) renderCode(path string, content []byte) (string, error) {
 	iterator, err := lexer.Tokenise(nil, code)
 	if err != nil {
 		// Fall back to plain text
-		return renderPlainText(code, truncated), nil
+		return renderPlainText(code, shown, total), nil
 	}
 
 	var buf bytes.Buffer
 	err = formatter.Format(&buf, style, iterator)
 	if err != nil {
-		return renderPlainText(code, truncated), nil
+		return renderPlainText(code, shown, total), nil
 	}
 
-	result := buf.String()
-	if truncated {
-		result += `<div style="padding: 12px; background: #fff3cd; color: #856404; border-radius: 4px; margin-top: 16px;">
-			Showing first 1000 lines. File has more content.
-		</div>`
-	}
-
-	return result, nil
+	return buf.String() + truncationNotice(shown, total), nil
 }
 
-func renderPlainText(code string, truncated bool) string {
+// truncationNotice emits the interactive "Load more / Load all" banner. The
+// client reads data-shown to compute the next limit and calls /api/render.
+// Empty when the whole file is shown.
+func truncationNotice(shown, total int) string {
+	if shown >= total {
+		return ""
+	}
+	return fmt.Sprintf(
+		`<div class="truncation-notice" data-shown="%d" data-total="%d">Showing first %d of %d lines.
+			<button class="load-more-btn">Load 1,000 more</button>
+			<button class="load-all-btn">Load all %d lines</button>
+		</div>`,
+		shown, total, shown, total, total,
+	)
+}
+
+func renderPlainText(code string, shown, total int) string {
 	escaped := strings.ReplaceAll(code, "&", "&amp;")
 	escaped = strings.ReplaceAll(escaped, "<", "&lt;")
 	escaped = strings.ReplaceAll(escaped, ">", "&gt;")
 
-	result := `<pre style="background: #f6f8fa; padding: 16px; overflow-x: auto; border-radius: 6px; font-family: monospace; font-size: 14px; line-height: 1.45;"><code>` + escaped + `</code></pre>`
-
-	if truncated {
-		result += `<div style="padding: 12px; background: #fff3cd; color: #856404; border-radius: 4px; margin-top: 16px;">
-			Showing first 1000 lines. File has more content.
-		</div>`
-	}
-
-	return result
+	return `<pre style="background: #f6f8fa; padding: 16px; overflow-x: auto; border-radius: 6px; font-family: monospace; font-size: 14px; line-height: 1.45;"><code>` + escaped + `</code></pre>` +
+		truncationNotice(shown, total)
 }
 
 // renderMedia returns embed HTML for image/PDF/audio/video files. The browser
@@ -369,7 +376,7 @@ func renderTable(content []byte, tsv bool) string {
 		if err != nil {
 			// Stop on the first parse error rather than silently producing
 			// half a table — fall back to the chroma view.
-			return renderPlainText(string(content), false)
+			return renderPlainText(string(content), 0, 0)
 		}
 		rows = append(rows, row)
 		if len(rows) >= maxTableRows {
