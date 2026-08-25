@@ -1,6 +1,6 @@
 # Binary
-livemd
-livemd.exe
+/livemd
+/livemd.exe
 
 # IDE
 .idea/
