@@ -47,6 +47,25 @@ livemd install                 # self-update from the latest GitHub release
 That link is the whole handoff. Do not also paste the file contents into the
 terminal — displaying it twice is the thing livemd exists to avoid.
 
+## Paths this machine keeps tracked
+
+Long-lived documents that are read in the browser rather than the terminal, and that change under
+you while you are reading them. Add them once; the daemon picks up every write after that.
+
+```bash
+livemd add /path/to/a/decision-record.md
+livemd add /path/to/agent-notes -r --filter md
+```
+
+**This section is deliberately empty of real paths.** The copy in the repo is the one other people
+install, and a machine's project layout is not something to ship them — the local copy under
+`~/.claude/skills/livemd/` is where the actual paths go. Write yours there, with a line each saying
+what makes the file worth live reload rather than a `cat`.
+
+The two that earn it in practice: a document **amended in place** rather than appended to, so it
+grows in the middle at the point you are already reading; and a **folder something else writes**,
+followed so a new file appears without another `add`.
+
 ## Notes and gotchas
 
 - Adding a file is cheap. The daemon registers it but only watches and renders on
