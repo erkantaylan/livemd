@@ -37,8 +37,10 @@ livemd install                 # self-update from the latest GitHub release
 
 ## Standard flow
 
-1. `livemd list` — if it errors, the daemon is not running; `livemd start --detach`.
-   The output also tells you the active port; do not assume 3000.
+1. `livemd list` — if it errors, the daemon is not running. Start it through the
+   service manager if the machine runs livemd as a service (see below), otherwise
+   `livemd start --detach`. The output also tells you the active port; do not
+   assume 3000.
 2. `livemd add <path>` for the file(s) the user wants to see.
 3. Hand back a deep link in one line:
    `http://localhost:3000/?file=<path>` (add `&view=raw` when the source matters
@@ -66,6 +68,38 @@ The two that earn it in practice: a document **amended in place** rather than ap
 grows in the middle at the point you are already reading; and a **folder something else writes**,
 followed so a new file appears without another `add`.
 
+## Running as a service
+
+`livemd start --detach` does not survive a reboot. Machines that want it always up
+run the foreground `livemd start` under a service manager (a systemd user unit with
+`Restart=on-failure`, for example). On such a machine:
+
+- Start and stop it through the service manager, never with `livemd start --detach`
+  — a second copy fails to get the lock or takes a different port.
+- `livemd stop` exits cleanly, so a restart-on-failure service stays stopped
+  afterwards; start it again through the service manager.
+- `livemd install` stops the daemon and relaunches it with `start --detach`,
+  outside the service. Stop the service first, run `livemd install` (it then has
+  nothing to relaunch), and start the service again.
+
+## The state file
+
+The watch list lives in `~/.livemd-state.json` (`%APPDATA%\livemd-state.json` on
+Windows): a `files` array and a `folders` array.
+
+- The daemon rewrites it from memory on every change, so an edit made while it runs
+  is overwritten. To edit by hand: stop the daemon, copy the file to a timestamped
+  backup (a fixed backup name gets overwritten by the next session that makes one),
+  edit, start.
+- Followed folders are expanded into `files` at startup, so `livemd list` shows
+  more entries than were added explicitly.
+- The browser sidebar's remove buttons change it too. If entries are missing, check
+  whether someone removed them there before suspecting the CLI.
+- From v0.16.0, a file that fails to parse is moved to
+  `~/.livemd-state.json.corrupt-<time>` instead of being replaced by an empty list,
+  and followed folders survive restarts (earlier versions dropped them from the
+  file on every start).
+
 ## Notes and gotchas
 
 - Adding a file is cheap. The daemon registers it but only watches and renders on
@@ -78,6 +112,11 @@ followed so a new file appears without another `add`.
   a valid substitute for `livemd add` when the user will click it anyway.
 - Paths resolve relative to the shell's working directory; prefer absolute paths
   when adding files from outside the project root.
+- `livemd add <folder>` requires `-r`; the CLI cannot follow a folder
+  non-recursively.
+- If `livemd start` says "already running" but nothing answers on that port, the
+  lock file (`/tmp/livemd.lock`) was left by a daemon that died. v0.16.0 and later
+  clear it automatically; on older versions delete it by hand.
 
 ## Installing this skill on another machine
 
@@ -89,4 +128,5 @@ mkdir -p ~/.claude/skills
 cp -r /path/to/livemd/skills/livemd ~/.claude/skills/livemd
 ```
 
-Re-copy after editing the repo copy to keep the two in sync.
+Re-copy after editing the repo copy to keep the two in sync, carrying over the
+local copy's own paths and machine setup rather than overwriting them.
