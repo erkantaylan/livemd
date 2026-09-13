@@ -35,6 +35,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -146,15 +147,22 @@ func cmdStart() {
 	detach := fs.Bool("detach", false, "run as background daemon")
 	fs.Parse(os.Args[2:])
 
-	// Check if already running
+	// Check if already running. A lock whose port refuses connections was left
+	// by a daemon that died without cleanup (crash, SIGKILL, OOM); honouring it
+	// would refuse every start — and under --detach, report success while
+	// nothing runs.
 	if lockPort, err := readLockFile(); err == nil {
-		fmt.Printf("LiveMD already running on port %d\n", lockPort)
-		printServerAddresses(lockPort)
-		// --detach is idempotent: already-running is success, not error.
-		if *detach {
-			os.Exit(0)
+		if daemonReachable(lockPort) {
+			fmt.Printf("LiveMD already running on port %d\n", lockPort)
+			printServerAddresses(lockPort)
+			// --detach is idempotent: already-running is success, not error.
+			if *detach {
+				os.Exit(0)
+			}
+			os.Exit(1)
 		}
-		os.Exit(1)
+		fmt.Printf("  Removing stale lock file (nothing listening on port %d)\n", lockPort)
+		removeLockFile()
 	}
 
 	// --detach: re-exec self without the flag, redirected to a log file, then exit.
@@ -170,12 +178,16 @@ func cmdStart() {
 		return
 	}
 
-	// Auto-detect available port if the requested one is in use
-	actualPort := *port
-	if !isPortAvailable(actualPort) {
-		originalPort := actualPort
-		actualPort = findAvailablePort(actualPort)
-		fmt.Printf("  Port %d is in use, using port %d instead\n", originalPort, actualPort)
+	// Bind now, falling back to a free port if the requested one is in use, and
+	// keep the listener: the lock file then never names a port nobody holds.
+	ln, err := listenFrom(*port)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: cannot listen: %v\n", err)
+		os.Exit(1)
+	}
+	actualPort := ln.Addr().(*net.TCPAddr).Port
+	if actualPort != *port {
+		fmt.Printf("  Port %d is in use, using port %d instead\n", *port, actualPort)
 	}
 
 	// Write lock file
@@ -191,34 +203,30 @@ func cmdStart() {
 	fmt.Println("  Use 'livemd stop' to stop the server")
 	fmt.Println()
 
-	StartServer(actualPort)
+	StartServer(ln)
 }
 
-// isPortAvailable checks if a TCP port can be listened on.
-func isPortAvailable(port int) bool {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+// listenFrom listens on startPort, or the next free port above it, or finally
+// any port the OS picks. Binding here instead of probing and closing avoids a
+// race where another process takes the port before the server opens it.
+func listenFrom(startPort int) (net.Listener, error) {
+	for p := startPort; p <= startPort+100; p++ {
+		if ln, err := net.Listen("tcp", fmt.Sprintf(":%d", p)); err == nil {
+			return ln, nil
+		}
+	}
+	return net.Listen("tcp", ":0")
+}
+
+// daemonReachable reports whether something accepts connections on the port a
+// lock file names.
+func daemonReachable(port int) bool {
+	c, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", port), 500*time.Millisecond)
 	if err != nil {
 		return false
 	}
-	ln.Close()
+	c.Close()
 	return true
-}
-
-// findAvailablePort scans upward from startPort to find the next available port.
-func findAvailablePort(startPort int) int {
-	for p := startPort + 1; p <= startPort+100; p++ {
-		if isPortAvailable(p) {
-			return p
-		}
-	}
-	// Fallback: let the OS pick
-	ln, err := net.Listen("tcp", ":0")
-	if err != nil {
-		return startPort
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
-	return port
 }
 
 // getNetworkAddresses returns all non-loopback IPv4 addresses from active network interfaces.
@@ -458,7 +466,7 @@ func cmdRemove() {
 		os.Exit(1)
 	}
 
-	req, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("http://localhost:%d/api/watch?path=%s", port, absPath), nil)
+	req, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("http://localhost:%d/api/watch?path=%s", port, url.QueryEscape(absPath)), nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)

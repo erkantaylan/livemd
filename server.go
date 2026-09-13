@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -80,6 +82,10 @@ func NewHub() *Hub {
 	}
 	h.logger.SetHub(h)
 
+	// Run must be draining h.broadcast before anything logs: every log line is
+	// a blocking send, and a restore with enough warnings would fill the buffer.
+	go h.Run()
+
 	fm, err := NewFolderManager(h)
 	if err != nil {
 		h.logger.Warn(fmt.Sprintf("Could not create folder watcher: %v", err))
@@ -106,6 +112,10 @@ func (h *Hub) persistState() {
 	}
 	h.mu.RUnlock()
 
+	// Map order is random; sort so the file only changes when the list does.
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	sort.Slice(folders, func(i, j int) bool { return folders[i].Path < folders[j].Path })
+
 	if err := saveState(&State{Files: files, Folders: folders}); err != nil {
 		h.logger.Warn(fmt.Sprintf("Persist state: %v", err))
 	}
@@ -114,6 +124,10 @@ func (h *Hub) persistState() {
 // restoreFromState loads the saved state file, registering files and following
 // folders. Missing files are silently skipped (file may have been deleted while
 // the daemon was down).
+//
+// Files are registered without persisting, and state is saved once at the end.
+// Saving per file used to write the state before any folder was restored, and
+// nothing saved again afterwards, so every restart erased followed folders.
 func (h *Hub) restoreFromState() {
 	state, err := loadState()
 	if err != nil {
@@ -121,34 +135,49 @@ func (h *Hub) restoreFromState() {
 		return
 	}
 
+	restored := 0
 	for _, sf := range state.Files {
 		if _, err := os.Stat(sf.Path); err != nil {
 			continue // file gone, skip silently
 		}
-		if err := h.AddFile(sf.Path); err != nil {
+		if err := h.registerFile(sf.Path, false); err != nil {
 			h.logger.Warn(fmt.Sprintf("Restore file %s: %v", sf.Path, err))
+			continue
+		}
+		restored++
+	}
+
+	if h.folderMgr != nil {
+		for i := range state.Folders {
+			folder := state.Folders[i] // copy
+			if _, err := os.Stat(folder.Path); err != nil {
+				continue
+			}
+			files, err := h.folderMgr.Follow(&folder)
+			if err != nil {
+				h.logger.Warn(fmt.Sprintf("Restore folder %s: %v", folder.Path, err))
+				continue
+			}
+			h.mu.Lock()
+			h.folders[folder.Path] = &folder
+			h.mu.Unlock()
+			for _, f := range files {
+				if h.registerFile(f, false) == nil { // ignore already-registered errors
+					restored++
+				}
+			}
 		}
 	}
 
-	if h.folderMgr == nil {
-		return
-	}
-	for i := range state.Folders {
-		folder := state.Folders[i] // copy
-		if _, err := os.Stat(folder.Path); err != nil {
-			continue
-		}
-		files, err := h.folderMgr.Follow(&folder)
-		if err != nil {
-			h.logger.Warn(fmt.Sprintf("Restore folder %s: %v", folder.Path, err))
-			continue
-		}
-		h.mu.Lock()
-		h.folders[folder.Path] = &folder
-		h.mu.Unlock()
-		for _, f := range files {
-			h.AddFile(f) // ignore already-registered errors
-		}
+	h.mu.RLock()
+	folders := len(h.folders)
+	h.mu.RUnlock()
+	h.logger.Info(fmt.Sprintf("Restored %d file(s), %d followed folder(s)", restored, folders))
+
+	// Nothing restored means nothing to save — e.g. every path sits on a drive
+	// that isn't mounted yet. Keep the file as it is rather than emptying it.
+	if restored > 0 || folders > 0 {
+		h.persistState()
 	}
 }
 
@@ -322,6 +351,26 @@ func (h *Hub) AddFile(path string) error {
 }
 
 func (h *Hub) AddFileWithActive(path string, active bool) error {
+	if err := h.registerFile(path, active); err != nil {
+		return err
+	}
+
+	// Only start watcher if active
+	if active {
+		h.startWatcher(path)
+		h.logger.Info(fmt.Sprintf("Started watching: %s", filepath.Base(path)))
+	} else {
+		h.logger.Info(fmt.Sprintf("Registered: %s", filepath.Base(path)))
+	}
+
+	h.broadcastFileList()
+	h.persistState()
+	return nil
+}
+
+// registerFile adds path to h.files without logging success, broadcasting or
+// persisting — restoreFromState registers the whole list and saves once.
+func (h *Hub) registerFile(path string, active bool) error {
 	h.mu.Lock()
 
 	// Check if already registered (case-insensitive on Windows)
@@ -371,17 +420,6 @@ func (h *Hub) AddFileWithActive(path string, active bool) error {
 	h.files[path] = file
 
 	h.mu.Unlock()
-
-	// Only start watcher if active
-	if active {
-		h.startWatcher(path)
-		h.logger.Info(fmt.Sprintf("Started watching: %s", filepath.Base(path)))
-	} else {
-		h.logger.Info(fmt.Sprintf("Registered: %s", filepath.Base(path)))
-	}
-
-	h.broadcastFileList()
-	h.persistState()
 	return nil
 }
 
@@ -584,7 +622,9 @@ func (h *Hub) RemoveFolder(folderPath string) int {
 		h.folderMgr.Unfollow(unfollow)
 	}
 
-	if len(toRemove) > 0 {
+	// An unfollow alone is a change too; saving only when files went left an
+	// empty followed folder in the state file, back again after restart.
+	if len(toRemove) > 0 || unfollow != "" {
 		h.logger.Info(fmt.Sprintf("Removed %d file(s) from folder: %s", len(toRemove), filepath.Base(folderPath)))
 		h.broadcastFileList()
 		h.persistState()
@@ -852,16 +892,15 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(info)
 }
 
-func StartServer(port int) {
+// StartServer serves on ln, which cmdStart binds before writing the lock file:
+// a lock only ever names a port that is already accepting connections, even
+// while NewHub is still restoring state.
+func StartServer(ln net.Listener) {
 	hub := NewHub()
-	go hub.Run()
-
-	// Restore previously watched files
-	
 
 	s := &Server{
 		hub:  hub,
-		port: port,
+		port: ln.Addr().(*net.TCPAddr).Port,
 	}
 
 	mux := http.NewServeMux()
@@ -1008,7 +1047,6 @@ func StartServer(port int) {
 	})
 
 	s.server = &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
 		Handler: mux,
 	}
 
@@ -1035,7 +1073,7 @@ func StartServer(port int) {
 		s.server.Shutdown(context.Background())
 	}()
 
-	if err := s.server.ListenAndServe(); err != http.ErrServerClosed {
+	if err := s.server.Serve(ln); err != http.ErrServerClosed {
 		log.Fatalf("Server error: %v", err)
 	}
 }

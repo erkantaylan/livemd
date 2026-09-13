@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 )
 
 // State is the on-disk shape of the daemon's tracked files and followed folders.
@@ -47,7 +48,14 @@ func loadState() (*State, error) {
 	}
 	var s State
 	if err := json.Unmarshal(data, &s); err != nil {
-		return nil, fmt.Errorf("parse state: %w", err)
+		// The daemon starts empty after this, and its next save would replace
+		// the unreadable file — a hand edit with one typo would erase every
+		// watch. Move it aside so it can be fixed and restored.
+		backup := path + ".corrupt-" + time.Now().Format("20060102-150405")
+		if rerr := os.Rename(path, backup); rerr != nil {
+			return nil, fmt.Errorf("parse state: %w (could not set it aside: %v)", err, rerr)
+		}
+		return nil, fmt.Errorf("parse state: %w (moved to %s)", err, backup)
 	}
 	return &s, nil
 }
