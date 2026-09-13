@@ -87,7 +87,20 @@ func cmdInstall() {
 		os.Exit(1)
 	}
 
-	wasRunning := stopRunningDaemon()
+	// Stopping a systemd-run daemon over HTTP exits it cleanly, which
+	// Restart=on-failure leaves stopped; stop and start it through systemd.
+	managed := serviceManaged()
+	wasRunning := false
+	if managed && serviceActive() {
+		if err := serviceStop(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		wasRunning = true
+	}
+	if stopRunningDaemon() {
+		wasRunning = true
+	}
 	if wasRunning {
 		fmt.Println("Stopped running daemon.")
 	}
@@ -100,6 +113,14 @@ func cmdInstall() {
 
 	cmdEnsurePath()
 
+	if wasRunning && managed {
+		if err := serviceStart(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not restart the service: %v\n", err)
+			return
+		}
+		fmt.Println("Restarted the livemd service.")
+		return
+	}
 	if wasRunning {
 		if err := relaunchDaemon(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not restart daemon: %v\n", err)

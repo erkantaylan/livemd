@@ -79,6 +79,9 @@ Usage:
   livemd stop                          Stop the server
   livemd port                          Show current port
   livemd port <number>                 Set default port
+  livemd service install               Start livemd automatically at login
+  livemd service uninstall             Remove autostart and stop the daemon
+  livemd service status                Show autostart and daemon state
   livemd install                       Self-update from latest GitHub release
   livemd ensure-path                   Add the install dir to PATH
   livemd version                       Print version
@@ -118,6 +121,8 @@ Examples:
 		cmdStop()
 	case "port":
 		cmdPort()
+	case "service":
+		cmdService()
 	case "version", "--version", "-v":
 		fmt.Printf("livemd %s %s/%s\n", Version, runtime.GOOS, runtime.GOARCH)
 	case "install":
@@ -163,6 +168,23 @@ func cmdStart() {
 		}
 		fmt.Printf("  Removing stale lock file (nothing listening on port %d)\n", lockPort)
 		removeLockFile()
+	}
+
+	// With a systemd unit installed, a detached copy would run outside it and
+	// block the unit from starting; start the unit instead.
+	if *detach && serviceManaged() {
+		if err := serviceStart(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		port, ok := waitForDaemon(5 * time.Second)
+		if !ok {
+			fmt.Fprintln(os.Stderr, "Error: the service started but the daemon did not come up; see 'livemd service status'")
+			os.Exit(1)
+		}
+		fmt.Printf("\n  LiveMD started through its service\n")
+		printServerAddresses(port)
+		return
 	}
 
 	// --detach: re-exec self without the flag, redirected to a log file, then exit.

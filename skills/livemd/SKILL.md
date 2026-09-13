@@ -32,15 +32,16 @@ livemd list                    # what is currently tracked
 livemd remove README.md        # stop tracking
 livemd stop                    # stop the daemon
 livemd port 3001               # change the port persistently
+livemd service install         # start at login (systemd / Windows logon entry)
+livemd service status          # autostart installed? enabled? running?
 livemd install                 # self-update from the latest GitHub release
 ```
 
 ## Standard flow
 
-1. `livemd list` — if it errors, the daemon is not running. Start it through the
-   service manager if the machine runs livemd as a service (see below), otherwise
-   `livemd start --detach`. The output also tells you the active port; do not
-   assume 3000.
+1. `livemd list` — if it errors, the daemon is not running; `livemd start --detach`
+   (from v1.0.0 it starts the systemd unit instead when one is installed). The
+   output also tells you the active port; do not assume 3000.
 2. `livemd add <path>` for the file(s) the user wants to see.
 3. Hand back a deep link in one line:
    `http://localhost:3000/?file=<path>` (add `&view=raw` when the source matters
@@ -70,17 +71,23 @@ followed so a new file appears without another `add`.
 
 ## Running as a service
 
-`livemd start --detach` does not survive a reboot. Machines that want it always up
-run the foreground `livemd start` under a service manager (a systemd user unit with
-`Restart=on-failure`, for example). On such a machine:
+`livemd start --detach` lasts until logout or reboot. `livemd service install`
+makes livemd start at every login, and starts it now:
 
-- Start and stop it through the service manager, never with `livemd start --detach`
-  — a second copy fails to get the lock or takes a different port.
-- `livemd stop` exits cleanly, so a restart-on-failure service stays stopped
-  afterwards; start it again through the service manager.
-- `livemd install` stops the daemon and relaunches it with `start --detach`,
-  outside the service. Stop the service first, run `livemd install` (it then has
-  nothing to relaunch), and start the service again.
+- **Linux:** a systemd user unit, `~/.config/systemd/user/livemd.service`, that
+  restarts livemd after a crash. While it is installed, `livemd start --detach`
+  and `livemd install` go through systemd, so a copy outside the unit cannot
+  happen. Logs: `journalctl --user -u livemd`.
+- **Windows:** a logon entry, `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\livemd`.
+  No admin rights, no restart after a crash, and it can be switched off in Task
+  Manager's Startup tab, which `livemd service status` reports as `Enabled: no`.
+
+`livemd service status` shows whether autostart is installed and enabled and
+whether livemd is running. It also notes when the entry points somewhere else
+than the current binary; run `livemd service install` again to fix that.
+`livemd service uninstall` removes autostart and stops livemd. On versions
+before v1.0.0 none of this exists: `livemd install` there relaunches the daemon
+with `start --detach`, outside any service you set up by hand.
 
 ## The state file
 
