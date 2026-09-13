@@ -141,11 +141,15 @@ func walkFolder(folder *WatchedFolder) ([]string, error) {
 // FolderManager owns a single fsnotify watcher across every followed folder
 // directory and dispatches Create events to the Hub for auto-registration.
 type FolderManager struct {
-	hub      *Hub
-	watcher  *fsnotify.Watcher
-	mu       sync.Mutex
-	folders  map[string]*WatchedFolder // root path -> folder
-	dirToRoot map[string]string         // any subdir path -> folder.Path it belongs to
+	hub     *Hub
+	watcher *fsnotify.Watcher
+	mu      sync.Mutex
+	folders map[string]*WatchedFolder // root path -> folder
+	// dirRoots maps each subscribed directory to every followed root that
+	// covers it. Followed folders can nest (explore/ and explore/tgoyemek/),
+	// and one root per directory meant the later follow took the directory
+	// over: unfollowing either one then dropped the other's watch on it.
+	dirRoots map[string]map[string]bool
 	done     chan struct{}
 }
 
@@ -155,11 +159,11 @@ func NewFolderManager(hub *Hub) (*FolderManager, error) {
 		return nil, err
 	}
 	fm := &FolderManager{
-		hub:       hub,
-		watcher:   w,
-		folders:   make(map[string]*WatchedFolder),
-		dirToRoot: make(map[string]string),
-		done:      make(chan struct{}),
+		hub:      hub,
+		watcher:  w,
+		folders:  make(map[string]*WatchedFolder),
+		dirRoots: make(map[string]map[string]bool),
+		done:     make(chan struct{}),
 	}
 	go fm.run()
 	return fm, nil
@@ -185,14 +189,19 @@ func (fm *FolderManager) Follow(folder *WatchedFolder) ([]string, error) {
 	return files, nil
 }
 
-// Unfollow stops watching a folder (subdirs go too).
+// Unfollow stops watching a folder. A directory is released from fsnotify only
+// once no other followed folder still covers it.
 func (fm *FolderManager) Unfollow(rootPath string) {
 	fm.mu.Lock()
 	defer fm.mu.Unlock()
-	for dir, root := range fm.dirToRoot {
-		if root == rootPath {
+	for dir, roots := range fm.dirRoots {
+		if !roots[rootPath] {
+			continue
+		}
+		delete(roots, rootPath)
+		if len(roots) == 0 {
 			fm.watcher.Remove(dir)
-			delete(fm.dirToRoot, dir)
+			delete(fm.dirRoots, dir)
 		}
 	}
 	delete(fm.folders, rootPath)
@@ -238,9 +247,12 @@ func (fm *FolderManager) subscribeTree(root string, folder *WatchedFolder) error
 			return filepath.SkipDir
 		}
 		fm.mu.Lock()
-		fm.dirToRoot[p] = root
+		if fm.dirRoots[p] == nil {
+			fm.dirRoots[p] = make(map[string]bool)
+		}
+		fm.dirRoots[p][folder.Path] = true
 		fm.mu.Unlock()
-		_ = fm.watcher.Add(p)
+		_ = fm.watcher.Add(p) // no-op if another root already added it
 		return nil
 	})
 }
@@ -266,24 +278,19 @@ func (fm *FolderManager) run() {
 	}
 }
 
+// handleCreate offers a new path to every followed folder covering its parent
+// directory; each applies its own live switch, filter and recursion. AddFile
+// ignores a file a second folder already registered.
 func (fm *FolderManager) handleCreate(path string) {
 	fm.mu.Lock()
-	parentDir := filepath.Dir(path)
-	rootPath, ok := fm.dirToRoot[parentDir]
-	if !ok {
-		fm.mu.Unlock()
-		return
+	var covering []*WatchedFolder
+	for root := range fm.dirRoots[filepath.Dir(path)] {
+		if folder, ok := fm.folders[root]; ok {
+			covering = append(covering, folder)
+		}
 	}
-	folder, ok := fm.folders[rootPath]
-	if !ok {
-		fm.mu.Unlock()
-		return
-	}
-	live := folder.Live
 	fm.mu.Unlock()
-
-	if !live {
-		fm.hub.logger.Info(fmt.Sprintf("Live=off, skipping create: %s", filepath.Base(path)))
+	if len(covering) == 0 {
 		return
 	}
 
@@ -292,19 +299,29 @@ func (fm *FolderManager) handleCreate(path string) {
 		return
 	}
 
-	if info.IsDir() {
-		if folder.Recursive {
-			_ = fm.subscribeTree(path, folder)
-			// New subdir might already contain files (e.g. created via mv).
-			files, _ := walkFolder(&WatchedFolder{Path: path, Extensions: folder.Extensions, Recursive: true, Depth: folder.Depth})
-			for _, f := range files {
-				fm.maybeAddFile(folder, f)
-			}
+	for _, folder := range covering {
+		fm.mu.Lock()
+		live := folder.Live
+		fm.mu.Unlock()
+		if !live {
+			fm.hub.logger.Info(fmt.Sprintf("Live=off, skipping create: %s", filepath.Base(path)))
+			continue
 		}
-		return
-	}
 
-	fm.maybeAddFile(folder, path)
+		if info.IsDir() {
+			if folder.Recursive {
+				_ = fm.subscribeTree(path, folder)
+				// New subdir might already contain files (e.g. created via mv).
+				files, _ := walkFolder(&WatchedFolder{Path: path, Extensions: folder.Extensions, Recursive: true, Depth: folder.Depth})
+				for _, f := range files {
+					fm.maybeAddFile(folder, f)
+				}
+			}
+			continue
+		}
+
+		fm.maybeAddFile(folder, path)
+	}
 }
 
 func (fm *FolderManager) maybeAddFile(folder *WatchedFolder, path string) {

@@ -121,6 +121,10 @@ Windows): a `files` array and a `folders` array.
   when adding files from outside the project root.
 - `livemd add <folder>` requires `-r`; the CLI cannot follow a folder
   non-recursively.
+- Adding a folder that is already followed searches it again, bringing back
+  files removed from the list and applying the new options (from v1.1.0; before
+  that it did nothing). Removing a folder in the sidebar also unfollows folders
+  followed inside it.
 - If `livemd start` says "already running" but nothing answers on that port, the
   lock file (`/tmp/livemd.lock`) was left by a daemon that died. v0.16.0 and later
   clear it automatically; on older versions delete it by hand.

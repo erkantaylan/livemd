@@ -145,10 +145,12 @@
             if (r.ok) return { ok: true };
             return r.text().then(msg => {
                 if (msg.indexOf('is a directory') !== -1) {
+                    // Recursive, like `livemd add <folder> -r`: without it
+                    // files in new subfolders were never auto-added.
                     return fetch('/api/folders', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ path: path }),
+                        body: JSON.stringify({ path: path, recursive: true }),
                     }).then(fr => fr.ok ? { ok: true, folder: true } : fr.text().then(fm => ({ ok: false, msg: fm })));
                 }
                 return { ok: false, msg: msg };
@@ -425,6 +427,30 @@
             current.files.push({ ...file, displayName: fileName });
         }
 
+        // Followed folders get a node even with no files in them, so their live
+        // switch and remove button stay reachable. Built from files alone, a
+        // followed folder whose files were all removed vanished from the
+        // sidebar while livemd went on following it.
+        for (const folder of folders) {
+            const relativePath = folder.path.slice(prefixLen);
+            if (!relativePath) continue;
+
+            let current = tree;
+            let currentPath = commonPrefix;
+            for (const part of relativePath.split('/')) {
+                currentPath = currentPath ? currentPath + '/' + part : part;
+                if (!current.children[part]) {
+                    current.children[part] = {
+                        children: {},
+                        files: [],
+                        path: currentPath,
+                        name: part
+                    };
+                }
+                current = current.children[part];
+            }
+        }
+
         return tree;
     }
 
@@ -511,7 +537,7 @@
     }
 
     function renderFileList() {
-        if (files.length === 0) {
+        if (files.length === 0 && folders.length === 0) {
             fileList.innerHTML = `
                 <div class="empty-state">
                     <p>No files being watched</p>
@@ -522,7 +548,9 @@
             return;
         }
 
-        const paths = files.map(f => f.path);
+        // A folder path counts like a file path here: the common prefix stops
+        // above it, so the folder renders as a node rather than as the root label.
+        const paths = files.map(f => f.path).concat(folders.map(f => f.path));
         const commonPrefix = findCommonPrefix(paths);
         const tree = buildTree(files, commonPrefix);
 

@@ -258,35 +258,61 @@ func (h *Hub) broadcastLog(entry LogEntry) {
 
 // FollowFolder registers a folder, runs initial discovery, and starts watching
 // it for new files. Live defaults to true (the user opted into "follow"; checkbox
-// can flip it later). Idempotent: re-following an existing folder returns nil.
+// can flip it later).
+//
+// Following a folder that is already followed replaces its options with the
+// new ones and discovers again, registering files removed from the list since.
+// It used to return without doing anything, so re-adding a folder whose files
+// had been removed left it followed, empty, and invisible in the sidebar.
 func (h *Hub) FollowFolder(folder *WatchedFolder) error {
 	if h.folderMgr == nil {
 		return fmt.Errorf("folder watcher unavailable")
 	}
+	// The page's add box passes the path as typed; "explore/" must be the
+	// same folder as "explore", and fsnotify reports parents without the slash.
+	folder.Path = filepath.Clean(folder.Path)
 
 	h.mu.Lock()
-	for existing := range h.folders {
+	var old *WatchedFolder
+	for existing, f := range h.folders {
 		if PathsEqual(existing, folder.Path) {
-			h.mu.Unlock()
-			return nil
+			old = f
+			delete(h.folders, existing)
+			break
 		}
 	}
 	h.folders[folder.Path] = folder
 	h.mu.Unlock()
 
+	if old != nil {
+		h.folderMgr.Unfollow(old.Path)
+	}
 	files, err := h.folderMgr.Follow(folder)
 	if err != nil {
 		h.mu.Lock()
 		delete(h.folders, folder.Path)
+		if old != nil {
+			h.folders[old.Path] = old
+		}
 		h.mu.Unlock()
+		if old != nil {
+			h.folderMgr.Follow(old)
+		}
 		return err
 	}
 
+	added := 0
 	for _, f := range files {
-		_ = h.AddFile(f) // ignore "already registered"
+		if h.registerFile(f, false) == nil { // ignore "already registered"
+			added++
+		}
 	}
 
-	h.logger.Info(fmt.Sprintf("Following folder: %s (%d files)", folder.Path, len(files)))
+	if old != nil {
+		h.logger.Info(fmt.Sprintf("Following folder again: %s (%d files, %d added back)", folder.Path, len(files), added))
+	} else {
+		h.logger.Info(fmt.Sprintf("Following folder: %s (%d files)", folder.Path, len(files)))
+	}
 	h.broadcastFileList()
 	h.persistState()
 	return nil
@@ -590,6 +616,7 @@ func (h *Hub) RemoveFile(path string) error {
 }
 
 func (h *Hub) RemoveFolder(folderPath string) int {
+	folderPath = filepath.Clean(folderPath)
 	h.mu.Lock()
 	var toRemove []string
 	prefix := folderPath + "/"
@@ -605,26 +632,29 @@ func (h *Hub) RemoveFolder(folderPath string) int {
 		}
 		delete(h.files, path)
 	}
-	// If this matches a followed folder root, also unfollow so we stop auto-adding.
-	var unfollow string
+	// Unfollow the folder and every followed folder inside it. A nested one
+	// left behind has no files, so the sidebar never shows it again and it
+	// cannot be removed there.
+	var unfollow []string
 	for existing := range h.folders {
-		if PathsEqual(existing, folderPath) {
-			unfollow = existing
-			break
+		if PathsEqual(existing, folderPath) || strings.HasPrefix(existing, prefix) {
+			unfollow = append(unfollow, existing)
 		}
 	}
-	if unfollow != "" {
-		delete(h.folders, unfollow)
+	for _, p := range unfollow {
+		delete(h.folders, p)
 	}
 	h.mu.Unlock()
 
-	if unfollow != "" && h.folderMgr != nil {
-		h.folderMgr.Unfollow(unfollow)
+	if h.folderMgr != nil {
+		for _, p := range unfollow {
+			h.folderMgr.Unfollow(p)
+		}
 	}
 
 	// An unfollow alone is a change too; saving only when files went left an
 	// empty followed folder in the state file, back again after restart.
-	if len(toRemove) > 0 || unfollow != "" {
+	if len(toRemove) > 0 || len(unfollow) > 0 {
 		h.logger.Info(fmt.Sprintf("Removed %d file(s) from folder: %s", len(toRemove), filepath.Base(folderPath)))
 		h.broadcastFileList()
 		h.persistState()
