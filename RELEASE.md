@@ -119,16 +119,29 @@ afterwards. Check the release page shows `livemd-linux-amd64` and
 
 ## 7. Update this machine
 
-`livemd install` pulls the new release over whatever is in `~/.local/bin/livemd`
-— including a local `dev` build. Restart afterwards; the daemon keeps running the
-old binary until it does.
+`livemd install` **refuses to run from a `dev` build** — "Cannot self-install a
+dev build" — and after testing you are almost certainly on one. Download the
+published asset instead, which has the merit of testing the artifact people will
+actually get:
 
 ```bash
-livemd install
-livemd stop && livemd start --detach
-livemd version
-livemd list                     # state survived: the same files and folders
+gh release download "$VERSION" -p livemd-linux-amd64 -D /tmp
+chmod +x /tmp/livemd-linux-amd64
+/tmp/livemd-linux-amd64 version         # confirm the version was baked in
+livemd stop
+cp /tmp/livemd-linux-amd64 "$(command -v livemd)"
+livemd start --detach
 ```
+
+Then confirm the daemon came back whole — the binary changed underneath it, so
+the watch list is the thing to check:
+
+```bash
+livemd version
+livemd list                     # same files and folders as before
+```
+
+From a release build, `livemd install` is the normal path and does all of this.
 
 ## If it goes wrong
 
