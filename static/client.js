@@ -85,6 +85,9 @@
     const viewToggle = document.getElementById('view-toggle');
     const viewPreviewBtn = document.getElementById('view-preview-btn');
     const viewRawBtn = document.getElementById('view-raw-btn');
+    const widthToggle = document.getElementById('width-toggle');
+    const widthNormalBtn = document.getElementById('width-normal-btn');
+    const widthWideBtn = document.getElementById('width-wide-btn');
     const addPathInput = document.getElementById('add-path-input');
     const addPathBtn = document.getElementById('add-path-btn');
     const addPathError = document.getElementById('add-path-error');
@@ -495,6 +498,20 @@
             });
     }
 
+    // Release notes are markdown. The daemon renders them (goldmark, raw HTML
+    // escaped) and sends bodyHtml; if that is missing — an older daemon, or a
+    // body goldmark choked on — fall back to the plain text rather than an
+    // empty entry.
+    function releaseBody(r) {
+        if (r.bodyHtml) {
+            return '<div class="changelog-body">' + r.bodyHtml + '</div>';
+        }
+        if (r.body) {
+            return '<div class="changelog-body is-plain">' + escapeHtml(r.body) + '</div>';
+        }
+        return '';
+    }
+
     function loadChangelog() {
         if (changelogLoaded) return;
         changelogList.innerHTML = '<div class="empty-state"><p>Loading changelog...</p></div>';
@@ -514,7 +531,7 @@
                         <div class="changelog-entry">
                             <div class="changelog-tag"><a href="${escapeHtml(r.html_url)}" target="_blank">${escapeHtml(title)}</a></div>
                             <div class="changelog-date">${escapeHtml(r.tag_name)} &middot; ${date}</div>
-                            ${r.body ? '<div class="changelog-body">' + escapeHtml(r.body) + '</div>' : ''}
+                            ${releaseBody(r)}
                         </div>
                     `;
                 }).join('');
@@ -1017,6 +1034,42 @@
         return viewModes[path] === 'raw' ? 'raw' : 'preview';
     }
 
+    // --- Normal/Wide. "Normal" is the centred reading column; "Wide" lets the
+    // document fill the window, for tables and wide code that the measure
+    // truncates. One setting for the app, not per file: it tracks the window
+    // you are reading in, and flipping it back on every file would be noise. ---
+    const WIDTH_STORE_KEY = 'livemd:layoutWidth';
+
+    function loadLayoutWidth() {
+        try {
+            return localStorage.getItem(WIDTH_STORE_KEY) === 'wide' ? 'wide' : 'normal';
+        } catch (e) {
+            return 'normal';
+        }
+    }
+
+    let layoutWidth = loadLayoutWidth();
+
+    // The class goes on <body>, not on the article: setViewKind rewrites
+    // content.className wholesale on every render and would drop it.
+    function applyLayoutWidth() {
+        document.body.classList.toggle('layout-wide', layoutWidth === 'wide');
+        widthNormalBtn.classList.toggle('active', layoutWidth === 'normal');
+        widthWideBtn.classList.toggle('active', layoutWidth === 'wide');
+    }
+
+    function setLayoutWidth(width) {
+        layoutWidth = width === 'wide' ? 'wide' : 'normal';
+        try {
+            localStorage.setItem(WIDTH_STORE_KEY, layoutWidth);
+        } catch (e) {
+            /* private mode / quota — the toggle still works for this session */
+        }
+        applyLayoutWidth();
+    }
+
+    applyLayoutWidth();
+
     function updateViewToggle(file) {
         if (file && hasTwoViews(file.path)) {
             viewToggle.classList.remove('is-hidden');
@@ -1107,7 +1160,12 @@
     // gets the centred reading column; source dumps, tables and media take the
     // whole pane, because narrowing them destroys them.
     function setViewKind(view) {
-        content.className = 'content view-' + (view || 'document');
+        const kind = view || 'document';
+        content.className = 'content view-' + kind;
+        // Only the document view has a measure to widen. Source dumps, tables
+        // and media already take the whole pane, so the control would be a
+        // button that does nothing — hide it rather than lie.
+        widthToggle.classList.toggle('is-hidden', kind !== 'document');
     }
 
     // effectiveMode collapses the view choice to what actually gets fetched:
@@ -1291,6 +1349,8 @@
 
     viewPreviewBtn.addEventListener('click', () => setViewMode('preview'));
     viewRawBtn.addEventListener('click', () => setViewMode('raw'));
+    widthNormalBtn.addEventListener('click', () => setLayoutWidth('normal'));
+    widthWideBtn.addEventListener('click', () => setLayoutWidth('wide'));
 
     function updateContentHeader(file) {
         updateViewToggle(file);

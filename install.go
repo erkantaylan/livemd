@@ -22,6 +22,11 @@ type githubRelease struct {
 	PublishedAt string        `json:"published_at"`
 	HTMLURL     string        `json:"html_url"`
 	Assets      []githubAsset `json:"assets"`
+
+	// BodyHTML is Body rendered to HTML for the changelog tab. GitHub never
+	// sends this key, so it is always empty after a decode and only ever set
+	// on the way out to the browser.
+	BodyHTML string `json:"bodyHtml,omitempty"`
 }
 
 // VersionInfo represents the current and latest version for the API

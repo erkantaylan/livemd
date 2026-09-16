@@ -891,6 +891,12 @@ func (s *Server) handleReleases(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	// Render here rather than in the browser: goldmark is already in the
+	// binary, and shipping HTML keeps the changelog working without a markdown
+	// library on the page (see design.md — no CDN dependencies).
+	for i := range releases {
+		releases[i].BodyHTML = renderReleaseBody(releases[i].Body)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(releases)
 }

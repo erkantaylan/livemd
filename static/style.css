@@ -255,7 +255,7 @@ body.sidebar-resizing {
 .button,
 .copy-btn,
 .track-btn,
-.view-toggle-btn {
+.segmented-btn {
     font-family: inherit;
     font-size: 12px;
     line-height: 1;
@@ -674,12 +674,127 @@ body.sidebar-resizing {
     margin-bottom: var(--s-2);
 }
 
+/* Release notes are markdown, rendered server-side by the same library the
+   documents use. The sidebar is ~300px, so the scale stays at 12px and the
+   heading levels compress into two sizes rather than six — a release body is a
+   list of changes, not a document. */
 .changelog-body {
     font-size: 12px;
     color: var(--ink-muted);
     line-height: 1.55;
-    white-space: pre-wrap;
     word-break: break-word;
+}
+
+.changelog-body > *:first-child {
+    margin-top: 0;
+}
+
+.changelog-body > *:last-child {
+    margin-bottom: 0;
+}
+
+.changelog-body p,
+.changelog-body ul,
+.changelog-body ol,
+.changelog-body blockquote {
+    margin: 0 0 var(--s-2);
+}
+
+.changelog-body h1,
+.changelog-body h2,
+.changelog-body h3,
+.changelog-body h4,
+.changelog-body h5,
+.changelog-body h6 {
+    margin: var(--s-3) 0 var(--s-1);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.changelog-body h1,
+.changelog-body h2 {
+    font-size: 13px;
+}
+
+.changelog-body ul,
+.changelog-body ol {
+    padding-left: var(--s-4);
+}
+
+.changelog-body li {
+    margin-bottom: 2px;
+}
+
+.changelog-body a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.changelog-body a:hover {
+    text-decoration: underline;
+}
+
+.changelog-body code {
+    padding: 0.1em 0.3em;
+    background: var(--sunken);
+    border-radius: var(--r-sm);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink);
+}
+
+.changelog-body pre {
+    margin: 0 0 var(--s-2);
+    padding: var(--s-2);
+    background: var(--raised);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-sm);
+    overflow-x: auto;
+}
+
+.changelog-body pre code {
+    padding: 0;
+    background: none;
+}
+
+.changelog-body blockquote {
+    padding-left: var(--s-2);
+    border-left: 2px solid var(--rule-strong);
+    color: var(--ink-faint);
+}
+
+.changelog-body hr {
+    margin: var(--s-3) 0;
+    border: 0;
+    border-top: 1px solid var(--rule);
+}
+
+.changelog-body img {
+    max-width: 100%;
+    height: auto;
+}
+
+/* A table in a release note is rare and always too wide for the sidebar —
+   scroll it rather than let it push the tree sideways. */
+.changelog-body table {
+    display: block;
+    overflow-x: auto;
+    border-collapse: collapse;
+    margin: 0 0 var(--s-2);
+}
+
+.changelog-body th,
+.changelog-body td {
+    padding: 2px var(--s-2);
+    border: 1px solid var(--rule);
+    text-align: left;
+}
+
+/* The fallback when the server could not render the body: plain text, kept as
+   it was written. */
+.changelog-body.is-plain {
+    white-space: pre-wrap;
 }
 
 /* ============================================================== Main ===== */
@@ -762,8 +877,9 @@ main {
     color: #fff;
 }
 
-/* Preview / Raw: one segmented control, not two buttons. */
-.view-toggle {
+/* A segmented control, not two buttons: the header carries two of these
+   (Preview/Raw and Normal/Wide) and they have to read as one choice each. */
+.segmented {
     display: inline-flex;
     border: 1px solid var(--rule-strong);
     border-radius: var(--r-md);
@@ -771,18 +887,18 @@ main {
     flex-shrink: 0;
 }
 
-.view-toggle-btn {
+.segmented-btn {
     border: none;
     border-radius: 0;
     padding: 5px var(--s-3);
     min-height: 24px;
 }
 
-.view-toggle-btn + .view-toggle-btn {
+.segmented-btn + .segmented-btn {
     border-left: 1px solid var(--rule-strong);
 }
 
-.view-toggle-btn.active {
+.segmented-btn.active {
     background: var(--accent);
     color: #fff;
 }
@@ -810,6 +926,18 @@ article.content {
     line-height: 1.65;
     color: var(--ink);
     overflow-wrap: break-word;
+}
+
+/* Widescreen. Both measures collapse to 100%, so the centring calc resolves to
+   zero, the gutter falls back to --s-5, and every block — prose included — runs
+   the full pane. Overriding the two tokens is the whole feature: nothing else
+   in the document hard-codes a width, which is what the token rule buys.
+   Scoped to the article, never to :root, so the sidebar keeps its own metrics.
+   Only view-document reacts; the other view kinds are already full-bleed and
+   the client hides the control for them. */
+body.layout-wide article.content {
+    --measure: 100%;
+    --measure-wide: 100%;
 }
 
 article.content > *:first-child {

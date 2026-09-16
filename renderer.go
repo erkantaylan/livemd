@@ -89,6 +89,35 @@ func NewRenderer() *Renderer {
 	return &Renderer{md: md}
 }
 
+// releaseMD renders GitHub release notes, and is deliberately not the document
+// renderer above. Release bodies arrive over the network rather than off disk,
+// so raw HTML stays escaped — no WithUnsafe — and the mermaid, math and link
+// transformers are left out: they resolve paths against the watched file, which
+// a release note has no relationship to.
+//
+// It also does not set WithHardWraps, which the document renderer does. Release
+// bodies are hard-wrapped at ~80 columns at the source; honouring those breaks
+// in a 300px sidebar turns every one into a ragged half-line. Letting the
+// paragraphs reflow to the column is the only thing that reads. Lists are
+// unaffected either way.
+var releaseMD = goldmark.New(
+	goldmark.WithExtensions(extension.GFM),
+)
+
+// renderReleaseBody converts one release body to HTML. It returns "" for an
+// empty body or a failed conversion; the client falls back to the plain text in
+// that case, so a broken render never silently loses the notes.
+func renderReleaseBody(body string) string {
+	if strings.TrimSpace(body) == "" {
+		return ""
+	}
+	var buf bytes.Buffer
+	if err := releaseMD.Convert([]byte(body), &buf); err != nil {
+		return ""
+	}
+	return buf.String()
+}
+
 // Mermaid support works in two stages: an AST transformer swaps ```mermaid
 // fences for a dedicated mermaidBlock node at parse time, and a renderer emits
 // those nodes as <div class="mermaid"> for client-side mermaid.js. Registering

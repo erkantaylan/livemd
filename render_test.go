@@ -96,3 +96,43 @@ func mustAbs(t *testing.T, p string) string {
 	}
 	return abs
 }
+
+// --- Release notes ---------------------------------------------------------
+//
+// The changelog tab renders markdown, but through a separate goldmark than the
+// documents: release bodies come off the network, so raw HTML must not survive.
+
+func TestRenderReleaseBody(t *testing.T) {
+	html := renderReleaseBody("## Fixes\n\n- the `--port` flag\n- see [#12](https://example.test/12)\n")
+
+	for _, want := range []struct{ desc, frag string }{
+		{"heading", "<h2>Fixes</h2>"},
+		{"list", "<li>"},
+		{"inline code", "<code>--port</code>"},
+		{"link", `href="https://example.test/12"`},
+	} {
+		if !strings.Contains(html, want.frag) {
+			t.Errorf("%s: %q missing from render", want.desc, want.frag)
+		}
+	}
+}
+
+func TestRenderReleaseBodyDropsRawHTML(t *testing.T) {
+	html := renderReleaseBody("<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n")
+
+	for _, bad := range []string{"<script", "onerror", "<img"} {
+		if strings.Contains(html, bad) {
+			t.Errorf("raw HTML %q survived into the changelog: %q", bad, html)
+		}
+	}
+}
+
+// An empty body must render to nothing, so the client drops the block instead
+// of drawing an empty one.
+func TestRenderReleaseBodyEmpty(t *testing.T) {
+	for _, in := range []string{"", "   ", "\n\t\n"} {
+		if got := renderReleaseBody(in); got != "" {
+			t.Errorf("renderReleaseBody(%q) = %q, want empty", in, got)
+		}
+	}
+}

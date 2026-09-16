@@ -111,6 +111,30 @@ blocks out with a negative margin against a `max-width` that resolved to the
 prose width — the blocks ended up offset by 94px and no wider, which reads as a
 mistake rather than a device.
 
+### Normal and Wide
+
+The measure is a default, not a law. A **Normal / Wide** control in the content
+header trades the reading column for the whole window, and the choice is
+remembered in `localStorage` for the app as a whole — not per file. It tracks
+the window you happen to be reading in, and a setting that reset on every file
+would be noise rather than a preference.
+
+Wide works by overriding `--measure` and `--measure-wide` to `100%` on
+`article.content` and nothing else. The centring calc resolves to zero, the
+gutter falls back to `--s-5`, and every block runs the pane. That one rule is
+the entire feature, and it only stays that small as long as the token rule above
+holds: the moment a width is hard-coded somewhere in the stylesheet, Wide starts
+lying. The override is scoped to the article, never `:root`, so the sidebar
+keeps its own metrics.
+
+Normal stays the default for a new browser. Most files are prose, and a
+document that opens at 200 characters a line has to be fixed before it can be
+read.
+
+The control appears only on `view-document`. The other view kinds are already
+full-bleed, so there is nothing for it to widen — a button that does nothing is
+worse than no button.
+
 Two things opt out of the prose cap, because narrowing them destroys them:
 
 - Code blocks and tables run to the full column width and scroll rather than
@@ -169,6 +193,15 @@ Three rules make hover-revealed controls safe:
    so anything after it is pushed against the absolutely-positioned remove
    button — reserve the width explicitly.
 
+### Segmented controls
+
+The header carries two of them — Preview / Raw and Normal / Wide — so the
+styling is generic (`.segmented`, `.segmented-btn`), not named after either.
+Each is one control with a lit segment, never two independent buttons: the pair
+is a single choice and has to look like one. The active segment is `--accent`
+filled; this is one of the few places the cool colour appears, and it is
+carrying real state.
+
 ### The tree
 
 Folder chains with a single child collapse into one row: `skills/aspire/
@@ -186,6 +219,23 @@ background colour inline on every highlighted block and an inline style cannot
 be overridden from the stylesheet without `!important`. Matching chroma's white
 keeps a fence with no language tag — which chroma never touches — looking like
 every other code block. Change chroma's style and this token has to follow.
+
+### The changelog
+
+Release notes are markdown and are rendered as markdown, by the daemon rather
+than the page — goldmark is already in the binary, and rendering client-side
+would mean a markdown library on the page, which the no-CDN rule forbids.
+
+It is a *second*, smaller goldmark than the document renderer, and the
+difference is deliberate: a release body arrives over the network, so raw HTML
+is dropped rather than passed through, and the link, mermaid and math
+transformers are left out because they resolve paths against the watched file.
+If the render fails the client falls back to the plain text, so a bad body loses
+its formatting and never its content.
+
+The sidebar is about 300px, so the body stays at 12px and the six heading levels
+compress to two sizes. A release note is a list of changes, not a document, and
+styling it like one would make the changelog compete with the tree.
 
 ### Feedback
 

@@ -152,11 +152,13 @@ livemd add docs/demo.md
 - **Lazy watching** - Files are registered but only actively watched when selected, and content is rendered on demand: the daemon holds no HTML, so tracking a 40 MB file costs nothing until you open it
 - **Many viewers** - Markdown (GFM + mermaid + KaTeX math), 50+ syntax-highlighted code languages, images, PDFs, audio, video, CSV/TSV as tables
 - **Preview / Raw toggle** - Markdown and HTML switch between the rendered document and the original source; the choice is remembered per file and travels in the URL
+- **Normal / Wide toggle** - Documents read in a centred column by default; Wide lets them fill the window, for wide tables and long code. Remembered across restarts
 - **Copy-pasteable URLs** - The address bar *is* the file's path (`http://localhost:3000/home/me/notes.md`), so a path pasted from a terminal opens it and a link copied from the page is a path; `?view=raw` and `#heading` ride along, and Back/Forward step through the documents you opened
 - **Working markdown links** - Relative links and images resolve against the document's own directory. A link to a neighbour opens it in place without adding it to the watch list; a Track button promotes it when you want live reload. Links outside every tracked root are refused rather than followed
 - **Add from the browser** - Track a file or folder by typing its path in the sidebar
 - **No line limits** - Files render in full, with a Copy button for the whole file. Text files are capped at 50 MB (media is exempt, since the browser streams it); syntax highlighting drops to plain text above 2 MB, where it costs 8x the HTML and buys nothing
 - **WebSocket live updates** - No page refresh needed
+- **Rendered changelog** - The Changelog tab shows GitHub release notes as markdown, not raw text
 - **Self-update** - `livemd install` pulls the latest GitHub release in place
 - **Cross-platform** - Linux, macOS, Windows (background daemon on all three)
 
