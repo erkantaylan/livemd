@@ -95,16 +95,40 @@ most files start with one.
 
 ### Measure
 
-Prose is capped at `--measure` (72ch) and centred. This is the single biggest
-readability win available: without it, a maximised window runs lines past 200
-characters and the eye loses its place on every wrap.
+The document is one centred column, `--measure-wide` (52rem, about 96
+characters) across. **Everything starts at that column's left edge**, and prose
+additionally stops at `--measure` (39rem, about 72 characters). Without the cap a
+maximised window runs lines past 200 characters and the eye loses its place on
+every wrap; with a shared left edge, code and tables can be wider than prose
+without looking misplaced.
 
-Things that are not prose opt out, because narrowing them destroys them:
+Both are in `rem`, deliberately. `ch` scales with the element's own font size, so
+a heading capped at `72ch` comes out visibly wider than the paragraph under it,
+and their right edges disagree.
 
-- Code blocks and tables get `--measure-wide` (96ch) — they scroll rather than
-  wrap, and a cramped table is unreadable.
-- Media (images, PDF, audio, video) and the HTML preview iframe go full bleed
-  via `.media-figure`, `.html-preview`. A PDF squeezed into 72ch is useless.
+Nothing is pulled sideways out of the column. An earlier version broke code
+blocks out with a negative margin against a `max-width` that resolved to the
+prose width — the blocks ended up offset by 94px and no wider, which reads as a
+mistake rather than a device.
+
+Two things opt out of the prose cap, because narrowing them destroys them:
+
+- Code blocks and tables run to the full column width and scroll rather than
+  wrap. Only top-level blocks are capped, so a paragraph or code block inside a
+  list item takes its width from the item.
+- Media (images, PDF, audio, video), the HTML preview, and whole-file source
+  views take the entire pane. The server names the shape of each render
+  (`viewKind`: document, source, table, media) and the client puts it on the
+  `<article>` as a `view-*` class — a source dump is markdown too, but it is not
+  prose.
+
+### Checking it
+
+`testdata/render/` holds fixtures covering every element the app renders:
+`kitchen-sink.md` for the full set, `code.md` for fences in and out of lists, and
+`wide.md` for content that exceeds the column. Open them in the app after any
+change to this stylesheet and confirm that every top-level block shares one left
+edge. `render_test.go` keeps the structural half honest between look-overs.
 
 ## Components
 
@@ -143,6 +167,14 @@ fourteen levels of indent to say nothing. Indentation is 12px per *rendered*
 level, so a compacted chain costs one level, not four.
 
 Folder rows are quieter than file rows: the files are the destinations.
+
+### Code surfaces
+
+Code blocks sit on `--raised`, not `--sunken`, because chroma writes its own
+background colour inline on every highlighted block and an inline style cannot
+be overridden from the stylesheet without `!important`. Matching chroma's white
+keeps a fence with no language tag — which chroma never touches — looking like
+every other code block. Change chroma's style and this token has to follow.
 
 ### Feedback
 

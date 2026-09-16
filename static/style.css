@@ -44,9 +44,12 @@
     --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
         "Liberation Mono", monospace;
 
-    /* Reading column */
-    --measure: 72ch;
-    --measure-wide: 96ch;
+    /* Reading column. In rem, not ch: ch scales with the element's own font
+       size, so a heading capped at 72ch comes out wider than the paragraph
+       below it and the two right edges disagree. These are 72 and 96 characters
+       at the 16px document size. */
+    --measure: 39rem;
+    --measure-wide: 52rem;
 }
 
 *,
@@ -781,13 +784,17 @@ main {
 
 /* ========================================================== Document ==== */
 
-/* One centred column. The gutter never drops below 24px, so a narrow window
-   still has breathing room at the edges. */
+/* One centred column, --measure-wide across. Everything in the document starts
+   at its left edge; prose additionally stops at --measure, because a line of
+   text is comfortable at 72 characters and a line of code is not. Nothing is
+   pulled sideways out of the column — an earlier attempt did that with negative
+   margins and produced blocks that were merely offset, not wider.
+   The gutter never drops below 24px, so a narrow window still has edges. */
 article.content {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: var(--s-6) max(var(--s-5), calc((100% - var(--measure)) / 2));
+    padding: var(--s-6) max(var(--s-5), calc((100% - var(--measure-wide)) / 2));
     font-size: 16px;
     line-height: 1.65;
     color: var(--ink);
@@ -902,22 +909,36 @@ article.content code {
     border-radius: var(--r-sm);
 }
 
-/* Code blocks and tables are wider than prose: they scroll rather than wrap,
-   and squeezing them to the prose measure destroys them. */
-article.content pre,
-article.content .chroma,
-article.content table {
-    width: var(--measure-wide);
-    max-width: calc(100% + 2 * max(var(--s-5), (100% - var(--measure)) / 2) - 2 * var(--s-5));
-    margin-left: calc((var(--measure) - var(--measure-wide)) / 2);
+/* Prose stops at the reading measure. Code, tables and media are not prose and
+   run on to the full column width. Only top-level blocks are capped: a
+   paragraph nested in a list item takes its width from the item. */
+article.content > p,
+article.content > h1,
+article.content > h2,
+article.content > h3,
+article.content > h4,
+article.content > h5,
+article.content > h6,
+article.content > ul,
+article.content > ol,
+article.content > dl,
+article.content > blockquote,
+article.content > hr,
+article.content > .front-matter,
+article.content > .welcome {
+    max-width: var(--measure);
 }
 
+/* --raised, not --sunken, because chroma writes its own background inline on
+   every highlighted block and an inline style cannot be overridden from here
+   without !important. Matching it keeps a fence with no language tag — which
+   chroma never touches — looking like every other code block. */
 article.content pre,
 article.content .chroma {
     margin-top: 0;
     margin-bottom: var(--s-4);
     padding: var(--s-3) var(--s-4);
-    background: var(--sunken);
+    background: var(--raised);
     border: 1px solid var(--rule);
     border-radius: var(--r-md);
     overflow-x: auto;
