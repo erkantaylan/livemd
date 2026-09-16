@@ -507,10 +507,32 @@ body.sidebar-resizing {
     color: var(--ink-faint);
 }
 
+/* Refresh reads as a button, not a mark: it sits on its own surface with a
+   border, at full strength. A faint glyph floating in the row was there but
+   invisible, which for the only control that picks up new files is the same as
+   being absent. */
 .folder-refresh {
-    color: var(--ink-faint);
-    font-size: 15px;
+    color: var(--ink-muted);
+    background: var(--raised);
+    border: 1px solid var(--rule-strong);
     opacity: 1;
+}
+
+.folder-refresh:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.folder-refresh:active {
+    transform: translateY(1px);
+}
+
+.folder-refresh:disabled {
+    background: var(--sunken);
+    border-color: var(--rule);
+    color: var(--ink-faint);
+    transform: none;
 }
 
 .tree-folder:hover .folder-remove,
@@ -520,12 +542,10 @@ body.sidebar-resizing {
     opacity: 1;
 }
 
-/* Refresh is always there, but only steps forward with the row. */
+/* Refresh is always there; the row picking up a hover only firms its edge. */
 .tree-folder:hover .folder-refresh,
-.tree-root:hover .folder-refresh,
-.tree-folder:focus-within .folder-refresh,
-.tree-root:focus-within .folder-refresh {
-    color: var(--ink-muted);
+.tree-root:hover .folder-refresh {
+    border-color: var(--ink-faint);
 }
 
 .file-remove:hover,
@@ -534,14 +554,8 @@ body.sidebar-resizing {
     color: var(--danger);
 }
 
-.folder-refresh:hover {
-    background: var(--accent-weak);
-    color: var(--accent);
-}
-
 .folder-refresh:disabled {
     cursor: default;
-    color: var(--ink-faint);
 }
 
 /* The outcome of the last refresh, beside the button that caused it. */

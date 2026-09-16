@@ -148,11 +148,16 @@ keyboard focus. The tree is a reading surface first: a column of red `✕` glyph
 down the right edge competes with the filenames for attention and makes the list
 look like a list of errors.
 
-The folder Refresh `⟳` is **not** hidden. It appears on a followed folder or
-two rather than on every row, it is the only way new files in that folder are
-ever picked up, and a control you have to discover by hovering may as well not
-exist. It rests at `--ink-faint` and steps forward to `--ink-muted` with its
-row. Hiding an action is for the ones you regret, not the ones you need.
+The folder Refresh is **not** hidden, and it is drawn as a button rather than a
+mark: its own `--raised` surface, a border, and a stroked icon, filling with
+`--accent` on hover. It appears on a followed folder or two rather than on every
+row, it is the only way new files in that folder are ever picked up, and a
+control you have to discover by hovering may as well not exist. Hiding an action
+is for the ones you regret, not the ones you need.
+
+Icons are inline SVG with a 2.25 stroke, never a text glyph. `⟳` is hairline in
+most UI fonts and draws differently on every platform — at 14px it read as
+punctuation left in the row by accident.
 
 Three rules make hover-revealed controls safe:
 

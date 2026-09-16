@@ -691,11 +691,21 @@
     // the result of the last refresh while it is still fresh. Returns nothing for
     // a directory that is merely part of a path — only followed folders can be
     // re-walked.
+    // A stroked icon rather than the ⟳ character: that glyph is hairline thin in
+    // most UI fonts, renders differently on every platform, and was the reason
+    // the control read as decoration instead of a button.
+    const refreshIcon =
+        '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"' +
+        ' stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<polyline points="23 4 23 10 17 10"/>' +
+        '<path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>' +
+        '</svg>';
+
     function folderRefreshControl(path) {
         if (!findFollowedFolder(path)) return '';
         const noted = refreshNote && pathsEqual(refreshNote.path, path);
         const note = noted ? `<span class="folder-refresh-note">${escapeHtml(refreshNote.text)}</span>` : '';
-        return `<button class="folder-refresh" data-path="${escapeHtml(path)}" title="Look for files added to this folder since it was followed"${noted && refreshNote.busy ? ' disabled' : ''}>&#8635;</button>${note}`;
+        return `<button class="folder-refresh" data-path="${escapeHtml(path)}" title="Look for files added to this folder since it was followed"${noted && refreshNote.busy ? ' disabled' : ''}>${refreshIcon}</button>${note}`;
     }
 
     // collectFolderPaths lists every directory the tree will draw a row for, so
