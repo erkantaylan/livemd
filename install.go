@@ -26,11 +26,11 @@ type githubRelease struct {
 
 // VersionInfo represents the current and latest version for the API
 type VersionInfo struct {
-	Current       string `json:"current"`
-	Latest        string `json:"latest"`
-	UpdateAvail   bool   `json:"updateAvailable"`
-	LatestURL     string `json:"latestUrl,omitempty"`
-	CheckedAt     string `json:"checkedAt"`
+	Current     string `json:"current"`
+	Latest      string `json:"latest"`
+	UpdateAvail bool   `json:"updateAvailable"`
+	LatestURL   string `json:"latestUrl,omitempty"`
+	CheckedAt   string `json:"checkedAt"`
 }
 
 type githubAsset struct {
