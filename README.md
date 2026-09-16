@@ -91,6 +91,28 @@ livemd stop
 
 Open http://localhost:3000 in your browser.
 
+### Start at login
+
+`livemd start --detach` lasts until you log out or reboot. To have livemd start
+by itself every time you log in:
+
+```bash
+livemd service install     # set up autostart and start livemd now
+livemd service status      # is autostart installed and enabled, is livemd running
+livemd service uninstall   # remove autostart and stop livemd
+```
+
+- **Linux** uses a systemd user unit (`~/.config/systemd/user/livemd.service`)
+  that restarts livemd if it crashes. While the unit is installed,
+  `livemd start --detach` and `livemd install` start and stop livemd through
+  systemd, so no second copy runs outside it. Logs: `journalctl --user -u livemd`.
+- **Windows** adds a logon entry under
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, which needs no admin
+  rights and shows up in Task Manager's Startup tab. It is not restarted after a
+  crash, and a console window may flash briefly at logon.
+
+Run `livemd service install` again after moving the livemd binary.
+
 ## Make Commands
 
 ```

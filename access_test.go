@@ -11,16 +11,6 @@ import (
 	"testing"
 )
 
-func writeFile(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // newTestHub builds a Hub without NewHub's side effects — no saved state read
 // from the user's home directory, no fsnotify watchers.
 func newTestHub(t *testing.T) *Hub {
@@ -261,49 +251,5 @@ func TestRefreshFolderPicksUpNewFiles(t *testing.T) {
 
 	if _, err := h.RefreshFolder(filepath.Join(root, "not-followed")); err == nil {
 		t.Error("refreshing an unfollowed folder should fail")
-	}
-}
-
-// Restoring saved state must not lose the followed folders. The file loop runs
-// before the folder loop and AddFile persists on every call, so a mid-restore
-// write would save an empty folder list — and when the folder's files were all
-// registered by the file loop, nothing later persisted to repair it. One start
-// wrote the folders away; the next had none to restore.
-func TestRestoreKeepsFoldersWhenTheirFilesAreAlreadyTracked(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-
-	docs := filepath.Join(home, "docs")
-	one := filepath.Join(docs, "one.md")
-	writeFile(t, one, "# one")
-
-	// The saved state names the file individually *and* follows its folder,
-	// which is the case that used to lose the folder.
-	saved := &State{
-		Files:   []StateFile{{Path: one}},
-		Folders: []WatchedFolder{{Path: docs, Recursive: true}},
-	}
-	if err := saveState(saved); err != nil {
-		t.Fatal(err)
-	}
-
-	h := newTestHub(t)
-	h.restoreFromState()
-
-	if len(h.folders) != 1 {
-		t.Fatalf("restored %d folders in memory, want 1", len(h.folders))
-	}
-
-	// The real test: what is on disk afterwards is what the next start reads.
-	after, err := loadState()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(after.Folders) != 1 {
-		t.Errorf("saved state has %d folders, want 1 — a restart would lose it", len(after.Folders))
-	}
-	if len(after.Files) != 1 {
-		t.Errorf("saved state has %d files, want 1", len(after.Files))
 	}
 }

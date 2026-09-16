@@ -97,7 +97,7 @@
     const maxReconnectDelay = 10000;
 
     let files = [];
-    let folders = []; // followed folders (auto-add new files)
+    let folders = []; // followed folders (walked again on Refresh)
     let logs = [];
     let activeFile = null;
     // The untracked file currently on screen, if any: reached by following a
@@ -346,10 +346,12 @@
             if (r.ok) return { ok: true };
             return r.text().then(msg => {
                 if (msg.indexOf('is a directory') !== -1) {
+                    // Recursive, like `livemd add <folder> -r`: without it a
+                    // refresh never reaches files in subfolders.
                     return fetch('/api/folders', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ path: path }),
+                        body: JSON.stringify({ path: path, recursive: true }),
                     }).then(fr => fr.ok ? { ok: true, folder: true } : fr.text().then(fm => ({ ok: false, msg: fm })));
                 }
                 return { ok: false, msg: msg };
@@ -684,6 +686,30 @@
             current.files.push({ ...file, displayName: fileName });
         }
 
+        // Followed folders get a node even with no files in them, so their
+        // Refresh and remove buttons stay reachable. Built from files alone, a
+        // followed folder whose files were all removed vanished from the
+        // sidebar while livemd went on following it.
+        for (const folder of folders) {
+            const relativePath = folder.path.slice(prefixLen);
+            if (!relativePath) continue;
+
+            let current = tree;
+            let currentPath = commonPrefix;
+            for (const part of relativePath.split('/')) {
+                currentPath = currentPath ? currentPath + '/' + part : part;
+                if (!current.children[part]) {
+                    current.children[part] = {
+                        children: {},
+                        files: [],
+                        path: currentPath,
+                        name: part
+                    };
+                }
+                current = current.children[part];
+            }
+        }
+
         return tree;
     }
 
@@ -706,17 +732,6 @@
         const noted = refreshNote && pathsEqual(refreshNote.path, path);
         const note = noted ? `<span class="folder-refresh-note">${escapeHtml(refreshNote.text)}</span>` : '';
         return `<button class="folder-refresh" data-path="${escapeHtml(path)}" title="Look for files added to this folder since it was followed"${noted && refreshNote.busy ? ' disabled' : ''}>${refreshIcon}</button>${note}`;
-    }
-
-    // collectFolderPaths lists every directory the tree will draw a row for, so
-    // renderFileList can spot a followed folder that would otherwise have none.
-    function collectFolderPaths(node, out) {
-        for (const name of Object.keys(node.children)) {
-            const child = node.children[name];
-            out.push(child.path);
-            collectFolderPaths(child, out);
-        }
-        return out;
     }
 
     // folderLabel dims the corridor part of a compacted chain, so the eye lands
@@ -814,7 +829,7 @@
     }
 
     function renderFileList() {
-        if (files.length === 0) {
+        if (files.length === 0 && folders.length === 0) {
             fileList.innerHTML = `
                 <div class="empty-state">
                     <p>No files being watched</p>
@@ -825,7 +840,9 @@
             return;
         }
 
-        const paths = files.map(f => f.path);
+        // A folder path counts like a file path here: the common prefix stops
+        // above it, so the folder renders as a node rather than as the root label.
+        const paths = files.map(f => f.path).concat(folders.map(f => f.path));
         const commonPrefix = findCommonPrefix(paths);
         const tree = compactChains(buildTree(files, commonPrefix));
 
@@ -833,24 +850,6 @@
         if (commonPrefix) {
             const rootName = commonPrefix.split('/').pop() || commonPrefix;
             html += `<div class="tree-root" title="${escapeHtml(commonPrefix)}"><span class="root-name">${escapeHtml(rootName)}</span>${folderRefreshControl(commonPrefix)}</div>`;
-        }
-
-        // A followed folder that contributes no files gets no row from the tree
-        // — and with it no way to ask for a refresh, which is the only way its
-        // files would ever appear. Give it one of its own.
-        const drawn = collectFolderPaths(tree, commonPrefix ? [commonPrefix] : []);
-        for (const folder of folders) {
-            if (drawn.some(p => pathsEqual(p, folder.path))) continue;
-            const name = folder.path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || folder.path;
-            html += `
-                <div class="tree-folder is-empty" title="${escapeHtml(folder.path)}">
-                    <span class="folder-toggle"></span>
-                    <span class="folder-icon"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M1.5 2h4l1 1h8a.5.5 0 0 1 .5.5v10a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5z" fill="#c09553"/></svg></span>
-                    <span class="folder-name">${escapeHtml(name)}</span>
-                    ${folderRefreshControl(folder.path)}
-                    <button class="folder-remove" data-path="${escapeHtml(folder.path)}" title="Remove folder from watch">&#10005;</button>
-                </div>
-            `;
         }
 
         html += renderTreeNode(tree, commonPrefix ? 1 : 0);

@@ -567,16 +567,6 @@ body.sidebar-resizing {
     user-select: none;
 }
 
-/* A followed folder contributing no files still needs its Refresh button. */
-.tree-folder.is-empty {
-    cursor: default;
-}
-
-.tree-folder.is-empty .folder-name {
-    font-style: italic;
-    color: var(--ink-faint);
-}
-
 /* ====================================================== Sidebar footer ==== */
 
 .sidebar-footer {

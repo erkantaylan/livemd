@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -63,8 +65,6 @@ type Hub struct {
 	folders  map[string]*WatchedFolder
 	renderer *Renderer
 	logger   *Logger
-
-	restoring bool // guarded by mu; see persistState
 }
 
 func NewHub() *Hub {
@@ -81,6 +81,10 @@ func NewHub() *Hub {
 	}
 	h.logger.SetHub(h)
 
+	// Run must be draining h.broadcast before anything logs: every log line is
+	// a blocking send, and a restore with enough warnings would fill the buffer.
+	go h.Run()
+
 	h.restoreFromState()
 	return h
 }
@@ -88,21 +92,8 @@ func NewHub() *Hub {
 // persistState writes the current files+folders to disk so they survive restart.
 // Called from any add/remove/toggle path; safe to call from inside a Hub method
 // that is NOT already holding h.mu (it acquires its own RLock).
-//
-// It does nothing while state is being restored. restoreFromState registers the
-// saved files before the saved folders, and AddFile persists on every call — so
-// the first restored file writes the folder list back out while it is still
-// empty. That is survivable only if the folder loop then persists too, which it
-// does not when every file in the folder was already registered by the file
-// loop: AddFile returns "already registered" and never reaches its persist. The
-// folders were left out of the saved state, and the next start had nothing to
-// restore. Restoration persists once, at the end, instead.
 func (h *Hub) persistState() {
 	h.mu.RLock()
-	if h.restoring {
-		h.mu.RUnlock()
-		return
-	}
 	files := make([]StateFile, 0, len(h.files))
 	for _, f := range h.files {
 		files = append(files, StateFile{Path: f.Path, Active: false}) // active is session-scoped
@@ -113,6 +104,10 @@ func (h *Hub) persistState() {
 	}
 	h.mu.RUnlock()
 
+	// Map order is random; sort so the file only changes when the list does.
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	sort.Slice(folders, func(i, j int) bool { return folders[i].Path < folders[j].Path })
+
 	if err := saveState(&State{Files: files, Folders: folders}); err != nil {
 		h.logger.Warn(fmt.Sprintf("Persist state: %v", err))
 	}
@@ -121,30 +116,27 @@ func (h *Hub) persistState() {
 // restoreFromState loads the saved state file, registering files and following
 // folders. Missing files are silently skipped (file may have been deleted while
 // the daemon was down).
+//
+// Files are registered without persisting, and state is saved once at the end.
+// Saving per file used to write the state before any folder was restored, and
+// nothing saved again afterwards, so every restart erased followed folders.
 func (h *Hub) restoreFromState() {
-	h.mu.Lock()
-	h.restoring = true
-	h.mu.Unlock()
-	defer func() {
-		h.mu.Lock()
-		h.restoring = false
-		h.mu.Unlock()
-		h.persistState()
-	}()
-
 	state, err := loadState()
 	if err != nil {
 		h.logger.Warn(fmt.Sprintf("Load state: %v", err))
 		return
 	}
 
+	restored := 0
 	for _, sf := range state.Files {
 		if _, err := os.Stat(sf.Path); err != nil {
 			continue // file gone, skip silently
 		}
-		if err := h.AddFile(sf.Path); err != nil {
+		if err := h.registerFile(sf.Path, false); err != nil {
 			h.logger.Warn(fmt.Sprintf("Restore file %s: %v", sf.Path, err))
+			continue
 		}
+		restored++
 	}
 
 	for i := range state.Folders {
@@ -161,8 +153,21 @@ func (h *Hub) restoreFromState() {
 		h.folders[folder.Path] = &folder
 		h.mu.Unlock()
 		for _, f := range files {
-			h.AddFile(f) // ignore already-registered errors
+			if h.registerFile(f, false) == nil { // ignore already-registered errors
+				restored++
+			}
 		}
+	}
+
+	h.mu.RLock()
+	folders := len(h.folders)
+	h.mu.RUnlock()
+	h.logger.Info(fmt.Sprintf("Restored %d file(s), %d followed folder(s)", restored, folders))
+
+	// Nothing restored means nothing to save — e.g. every path sits on a drive
+	// that isn't mounted yet. Keep the file as it is rather than emptying it.
+	if restored > 0 || folders > 0 {
+		h.persistState()
 	}
 }
 
@@ -241,15 +246,26 @@ func (h *Hub) broadcastLog(entry LogEntry) {
 	h.broadcast <- data
 }
 
-// FollowFolder registers a folder and walks it once, registering what it finds.
-// Idempotent: re-following an existing folder returns nil. New files that appear
-// later are picked up by RefreshFolder, not automatically.
+// FollowFolder registers a folder, runs initial discovery, and starts watching
+// it for new files. Live defaults to true (the user opted into "follow"; checkbox
+// can flip it later).
+//
+// Following a folder that is already followed replaces its options with the
+// new ones and discovers again, registering files removed from the list since.
+// It used to return without doing anything, so re-adding a folder whose files
+// had been removed left it followed, empty, and invisible in the sidebar.
 func (h *Hub) FollowFolder(folder *WatchedFolder) error {
+	// The page's add box passes the path as typed, and "explore/" must be the
+	// same folder as "explore".
+	folder.Path = filepath.Clean(folder.Path)
+
 	h.mu.Lock()
-	for existing := range h.folders {
+	var old *WatchedFolder
+	for existing, f := range h.folders {
 		if PathsEqual(existing, folder.Path) {
-			h.mu.Unlock()
-			return nil
+			old = f
+			delete(h.folders, existing)
+			break
 		}
 	}
 	h.folders[folder.Path] = folder
@@ -259,15 +275,25 @@ func (h *Hub) FollowFolder(folder *WatchedFolder) error {
 	if err != nil {
 		h.mu.Lock()
 		delete(h.folders, folder.Path)
+		if old != nil {
+			h.folders[old.Path] = old
+		}
 		h.mu.Unlock()
 		return err
 	}
 
+	added := 0
 	for _, f := range files {
-		_ = h.AddFile(f) // ignore "already registered"
+		if h.registerFile(f, false) == nil { // ignore "already registered"
+			added++
+		}
 	}
 
-	h.logger.Info(fmt.Sprintf("Following folder: %s (%d files)", folder.Path, len(files)))
+	if old != nil {
+		h.logger.Info(fmt.Sprintf("Following folder again: %s (%d files, %d added back)", folder.Path, len(files), added))
+	} else {
+		h.logger.Info(fmt.Sprintf("Following folder: %s (%d files)", folder.Path, len(files)))
+	}
 	h.broadcastFileList()
 	h.persistState()
 	return nil
@@ -347,6 +373,26 @@ func (h *Hub) AddFile(path string) error {
 }
 
 func (h *Hub) AddFileWithActive(path string, active bool) error {
+	if err := h.registerFile(path, active); err != nil {
+		return err
+	}
+
+	// Only start watcher if active
+	if active {
+		h.startWatcher(path)
+		h.logger.Info(fmt.Sprintf("Started watching: %s", filepath.Base(path)))
+	} else {
+		h.logger.Info(fmt.Sprintf("Registered: %s", filepath.Base(path)))
+	}
+
+	h.broadcastFileList()
+	h.persistState()
+	return nil
+}
+
+// registerFile adds path to h.files without logging success, broadcasting or
+// persisting — restoreFromState registers the whole list and saves once.
+func (h *Hub) registerFile(path string, active bool) error {
 	h.mu.Lock()
 
 	// Check if already registered (case-insensitive on Windows)
@@ -396,17 +442,6 @@ func (h *Hub) AddFileWithActive(path string, active bool) error {
 	h.files[path] = file
 
 	h.mu.Unlock()
-
-	// Only start watcher if active
-	if active {
-		h.startWatcher(path)
-		h.logger.Info(fmt.Sprintf("Started watching: %s", filepath.Base(path)))
-	} else {
-		h.logger.Info(fmt.Sprintf("Registered: %s", filepath.Base(path)))
-	}
-
-	h.broadcastFileList()
-	h.persistState()
 	return nil
 }
 
@@ -577,6 +612,7 @@ func (h *Hub) RemoveFile(path string) error {
 }
 
 func (h *Hub) RemoveFolder(folderPath string) int {
+	folderPath = filepath.Clean(folderPath)
 	h.mu.Lock()
 	var toRemove []string
 	prefix := folderPath + "/"
@@ -592,21 +628,23 @@ func (h *Hub) RemoveFolder(folderPath string) int {
 		}
 		delete(h.files, path)
 	}
-	// If this matches a followed folder root, unfollow it too — otherwise the
-	// next Refresh would pull straight back in what was just removed.
-	var unfollow string
+	// Unfollow the folder and every followed folder inside it. A nested one
+	// left behind has no files, so the sidebar never shows it again and it
+	// cannot be removed there.
+	var unfollow []string
 	for existing := range h.folders {
-		if PathsEqual(existing, folderPath) {
-			unfollow = existing
-			break
+		if PathsEqual(existing, folderPath) || strings.HasPrefix(existing, prefix) {
+			unfollow = append(unfollow, existing)
 		}
 	}
-	if unfollow != "" {
-		delete(h.folders, unfollow)
+	for _, p := range unfollow {
+		delete(h.folders, p)
 	}
 	h.mu.Unlock()
 
-	if len(toRemove) > 0 {
+	// An unfollow alone is a change too; saving only when files went left an
+	// empty followed folder in the state file, back again after restart.
+	if len(toRemove) > 0 || len(unfollow) > 0 {
 		h.logger.Info(fmt.Sprintf("Removed %d file(s) from folder: %s", len(toRemove), filepath.Base(folderPath)))
 		h.broadcastFileList()
 		h.persistState()
@@ -741,7 +779,7 @@ func (s *Server) handleRaw(w http.ResponseWriter, r *http.Request) {
 // source view). Backs the Preview/Raw toggle, and doubles as the client's test
 // of whether an untracked path may be opened at all — same allowlist as /raw.
 // The response echoes the resolved path so the client can adopt the daemon's
-// spelling of it (symlinks followed, separators and case as the OS has them).
+// spelling of it, and names the shape of the render so it can be laid out.
 func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	requested := r.URL.Query().Get("path")
 	if requested == "" {
@@ -863,6 +901,9 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(info)
 }
 
+// StartServer serves on ln, which cmdStart binds before writing the lock file:
+// a lock only ever names a port that is already accepting connections, even
+// while NewHub is still restoring state.
 // routes builds the daemon's route table. Split out from StartServer so a
 // test can drive the real endpoints without binding a port or taking the
 // single-instance lock.
@@ -1016,21 +1057,17 @@ func (s *Server) routes() *http.ServeMux {
 	return mux
 }
 
-func StartServer(port int) {
+func StartServer(ln net.Listener) {
 	hub := NewHub()
-	go hub.Run()
-
-	// Restore previously watched files
 
 	s := &Server{
 		hub:  hub,
-		port: port,
+		port: ln.Addr().(*net.TCPAddr).Port,
 	}
 
 	mux := s.routes()
 
 	s.server = &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
 		Handler: mux,
 	}
 
@@ -1057,7 +1094,7 @@ func StartServer(port int) {
 		s.server.Shutdown(context.Background())
 	}()
 
-	if err := s.server.ListenAndServe(); err != http.ErrServerClosed {
+	if err := s.server.Serve(ln); err != http.ErrServerClosed {
 		log.Fatalf("Server error: %v", err)
 	}
 }
