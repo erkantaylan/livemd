@@ -143,12 +143,18 @@ guess until you hover it.
 
 ### Controls that appear on hover
 
-Row controls (remove `✕`, folder Refresh `⟳`) are invisible until the row is
-hovered or something inside it has keyboard focus. The tree is a reading
-surface first: a column of red `✕` glyphs down the right edge competes with
-the filenames for attention and makes the list look like a list of errors.
+The remove `✕` is invisible until its row is hovered or something inside it has
+keyboard focus. The tree is a reading surface first: a column of red `✕` glyphs
+down the right edge competes with the filenames for attention and makes the list
+look like a list of errors.
 
-Three rules make this safe:
+The folder Refresh `⟳` is **not** hidden. It appears on a followed folder or
+two rather than on every row, it is the only way new files in that folder are
+ever picked up, and a control you have to discover by hovering may as well not
+exist. It rests at `--ink-faint` and steps forward to `--ink-muted` with its
+row. Hiding an action is for the ones you regret, not the ones you need.
+
+Three rules make hover-revealed controls safe:
 
 1. The control occupies its space whether or not it is visible — it fades with
    `opacity`, never `display`, so nothing reflows on hover.

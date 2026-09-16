@@ -475,9 +475,13 @@ body.sidebar-resizing {
     opacity: 0.5;
 }
 
-/* --- Row controls: present but silent until the row is under the cursor ---
-   They keep their space at all times (opacity, not display), so revealing one
-   never reflows the row. */
+/* --- Row controls. Remove is hidden until the row is under the cursor: one
+   destructive glyph per row, down the whole right edge, competes with the
+   filenames. Refresh is not hidden — it appears on a followed folder or two,
+   it is the only way new files are ever picked up, and a control you have to
+   discover by hovering may as well not exist. It stays faint instead.
+   Both keep their space at all times (opacity, not display), so revealing one
+   never reflows the row. --- */
 .file-remove,
 .folder-remove,
 .folder-refresh {
@@ -504,21 +508,24 @@ body.sidebar-resizing {
 }
 
 .folder-refresh {
-    color: var(--ink-muted);
+    color: var(--ink-faint);
     font-size: 15px;
+    opacity: 1;
 }
 
 .tree-folder:hover .folder-remove,
-.tree-folder:hover .folder-refresh,
-.tree-root:hover .folder-refresh,
 .file-item:hover .file-remove,
 .tree-folder:focus-within .folder-remove,
-.tree-folder:focus-within .folder-refresh,
-.tree-root:focus-within .folder-refresh,
-.file-item:focus-within .file-remove,
-.folder-refresh:disabled,
-.folder-refresh.is-shown {
+.file-item:focus-within .file-remove {
     opacity: 1;
+}
+
+/* Refresh is always there, but only steps forward with the row. */
+.tree-folder:hover .folder-refresh,
+.tree-root:hover .folder-refresh,
+.tree-folder:focus-within .folder-refresh,
+.tree-root:focus-within .folder-refresh {
+    color: var(--ink-muted);
 }
 
 .file-remove:hover,

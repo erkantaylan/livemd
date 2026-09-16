@@ -432,7 +432,7 @@ func addFolder(folderPath string, port int, filterExts string, maxDepth int) {
 	if filterExts != "" {
 		fmt.Printf("  Filter: %s\n", filterExts)
 	}
-	fmt.Println("  New files appearing here will be auto-added (toggle off in the sidebar to disable).")
+	fmt.Println("  Files added later are picked up by the folder's Refresh button in the sidebar.")
 }
 
 // cmdRemove handles the "livemd remove" command.

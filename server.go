@@ -63,6 +63,8 @@ type Hub struct {
 	folders  map[string]*WatchedFolder
 	renderer *Renderer
 	logger   *Logger
+
+	restoring bool // guarded by mu; see persistState
 }
 
 func NewHub() *Hub {
@@ -86,8 +88,21 @@ func NewHub() *Hub {
 // persistState writes the current files+folders to disk so they survive restart.
 // Called from any add/remove/toggle path; safe to call from inside a Hub method
 // that is NOT already holding h.mu (it acquires its own RLock).
+//
+// It does nothing while state is being restored. restoreFromState registers the
+// saved files before the saved folders, and AddFile persists on every call — so
+// the first restored file writes the folder list back out while it is still
+// empty. That is survivable only if the folder loop then persists too, which it
+// does not when every file in the folder was already registered by the file
+// loop: AddFile returns "already registered" and never reaches its persist. The
+// folders were left out of the saved state, and the next start had nothing to
+// restore. Restoration persists once, at the end, instead.
 func (h *Hub) persistState() {
 	h.mu.RLock()
+	if h.restoring {
+		h.mu.RUnlock()
+		return
+	}
 	files := make([]StateFile, 0, len(h.files))
 	for _, f := range h.files {
 		files = append(files, StateFile{Path: f.Path, Active: false}) // active is session-scoped
@@ -107,6 +122,16 @@ func (h *Hub) persistState() {
 // folders. Missing files are silently skipped (file may have been deleted while
 // the daemon was down).
 func (h *Hub) restoreFromState() {
+	h.mu.Lock()
+	h.restoring = true
+	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		h.restoring = false
+		h.mu.Unlock()
+		h.persistState()
+	}()
+
 	state, err := loadState()
 	if err != nil {
 		h.logger.Warn(fmt.Sprintf("Load state: %v", err))
