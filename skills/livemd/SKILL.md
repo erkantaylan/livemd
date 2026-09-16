@@ -25,7 +25,7 @@ those over the normal way unless the user asks to see them rendered.
 ```bash
 livemd start --detach          # start the daemon in the background
 livemd add README.md           # track and render a file
-livemd add ./docs -r           # follow a folder, auto-adding new files
+livemd add ./docs -r           # follow a folder (Refresh picks up later additions)
 livemd add ./src -r --filter "md,go,js"
 livemd add ./misc -r --depth 5 # cap depth outside git repos
 livemd list                    # what is currently tracked

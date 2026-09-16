@@ -215,3 +215,49 @@ func TestPathStyleURLsDoNotSwallowEndpoints(t *testing.T) {
 		t.Errorf("GET /favicon.ico: got %d, want 404 rather than the app shell", code)
 	}
 }
+
+// Followed folders are walked on request, not watched, so Refresh is the only
+// thing that picks up a file created after the folder was followed.
+func TestRefreshFolderPicksUpNewFiles(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", filepath.Join(root, "home"))
+
+	docs := filepath.Join(root, "docs")
+	writeFile(t, filepath.Join(docs, "one.md"), "# one")
+
+	h := newTestHub(t)
+	h.broadcast = make(chan []byte, 64)
+	folder := &WatchedFolder{Path: docs, Recursive: true}
+	if err := h.FollowFolder(folder); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(h.files); got != 1 {
+		t.Fatalf("after following: %d files, want 1", got)
+	}
+
+	// A file that appears afterwards is invisible until someone asks again.
+	writeFile(t, filepath.Join(docs, "two.md"), "# two")
+	if got := len(h.files); got != 1 {
+		t.Fatalf("before refresh: %d files, want the new file still unseen", got)
+	}
+
+	added, err := h.RefreshFolder(docs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if added != 1 {
+		t.Errorf("RefreshFolder added %d, want 1", added)
+	}
+	if got := len(h.files); got != 2 {
+		t.Errorf("after refresh: %d files, want 2", got)
+	}
+
+	// Refreshing again is a no-op: already-registered files aren't counted.
+	if added, err := h.RefreshFolder(docs); err != nil || added != 0 {
+		t.Errorf("second refresh added %d (err %v), want 0", added, err)
+	}
+
+	if _, err := h.RefreshFolder(filepath.Join(root, "not-followed")); err == nil {
+		t.Error("refreshing an unfollowed folder should fail")
+	}
+}

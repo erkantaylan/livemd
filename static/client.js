@@ -110,6 +110,8 @@
         return folders.find(f => f.path.toLowerCase() === path.toLowerCase());
     }
     let collapsedFolders = new Set();
+    // Outcome of the most recent folder refresh: { path, text, busy, timer }.
+    let refreshNote = null;
     let changelogLoaded = false;
 
     // --- Deep links: the address bar *is* the file's path, so
@@ -652,6 +654,28 @@
         return tree;
     }
 
+    // folderRefreshControl renders the Refresh button for a followed folder, plus
+    // the result of the last refresh while it is still fresh. Returns nothing for
+    // a directory that is merely part of a path — only followed folders can be
+    // re-walked.
+    function folderRefreshControl(path) {
+        if (!findFollowedFolder(path)) return '';
+        const noted = refreshNote && pathsEqual(refreshNote.path, path);
+        const note = noted ? `<span class="folder-refresh-note">${escapeHtml(refreshNote.text)}</span>` : '';
+        return `<button class="folder-refresh" data-path="${escapeHtml(path)}" title="Look for files added to this folder since it was followed"${noted && refreshNote.busy ? ' disabled' : ''}>&#8635;</button>${note}`;
+    }
+
+    // collectFolderPaths lists every directory the tree will draw a row for, so
+    // renderFileList can spot a followed folder that would otherwise have none.
+    function collectFolderPaths(node, out) {
+        for (const name of Object.keys(node.children)) {
+            const child = node.children[name];
+            out.push(child.path);
+            collectFolderPaths(child, out);
+        }
+        return out;
+    }
+
     function renderTreeNode(node, depth = 0) {
         let html = '';
         const indent = depth * 12;
@@ -666,17 +690,14 @@
                 ? '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M1.5 2h4l1 1h8a.5.5 0 0 1 .5.5v10a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5z" fill="#c09553"/></svg>'
                 : '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M1.5 2h4l1 1h8a.5.5 0 0 1 .5.5V5H1V2.5a.5.5 0 0 1 .5-.5z" fill="#c09553"/><path d="M.5 5.5h14.5l-2 9H2z" fill="#dcb67a"/></svg>';
 
-            const followed = findFollowedFolder(folder.path);
-            const liveBadge = followed
-                ? `<label class="folder-live" title="Auto-add new files dropped into this folder"><input type="checkbox" data-path="${escapeHtml(folder.path)}" class="folder-live-toggle" ${followed.live ? 'checked' : ''}><span>live</span></label>`
-                : '';
+            const refreshControl = folderRefreshControl(folder.path);
 
             html += `
                 <div class="tree-folder ${isCollapsed ? 'collapsed' : ''}" data-path="${escapeHtml(folder.path)}" style="padding-left: ${indent}px">
                     <span class="folder-toggle" data-path="${escapeHtml(folder.path)}">${chevron}</span>
                     <span class="folder-icon">${folderSvg}</span>
                     <span class="folder-name">${escapeHtml(folderName)}</span>
-                    ${liveBadge}
+                    ${refreshControl}
                     <button class="folder-remove" data-path="${escapeHtml(folder.path)}" title="Remove folder from watch">&#10005;</button>
                 </div>
             `;
@@ -753,8 +774,26 @@
         let html = '';
         if (commonPrefix) {
             const rootName = commonPrefix.split('/').pop() || commonPrefix;
-            html += `<div class="tree-root" title="${escapeHtml(commonPrefix)}">${escapeHtml(rootName)}</div>`;
+            html += `<div class="tree-root" title="${escapeHtml(commonPrefix)}">${escapeHtml(rootName)}${folderRefreshControl(commonPrefix)}</div>`;
         }
+
+        // A followed folder that contributes no files gets no row from the tree
+        // — and with it no way to ask for a refresh, which is the only way its
+        // files would ever appear. Give it one of its own.
+        const drawn = collectFolderPaths(tree, commonPrefix ? [commonPrefix] : []);
+        for (const folder of folders) {
+            if (drawn.some(p => pathsEqual(p, folder.path))) continue;
+            const name = folder.path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || folder.path;
+            html += `
+                <div class="tree-folder is-empty" title="${escapeHtml(folder.path)}">
+                    <span class="folder-icon"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M1.5 2h4l1 1h8a.5.5 0 0 1 .5.5v10a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5z" fill="#c09553"/></svg></span>
+                    <span class="folder-name">${escapeHtml(name)}</span>
+                    ${folderRefreshControl(folder.path)}
+                    <button class="folder-remove" data-path="${escapeHtml(folder.path)}" title="Remove folder from watch">&#10005;</button>
+                </div>
+            `;
+        }
+
         html += renderTreeNode(tree, commonPrefix ? 1 : 0);
 
         fileList.innerHTML = html;
@@ -788,10 +827,10 @@
             });
         });
 
-        fileList.querySelectorAll('.folder-live-toggle').forEach(cb => {
-            cb.addEventListener('click', e => e.stopPropagation());
-            cb.addEventListener('change', () => {
-                toggleFolderLive(cb.dataset.path, cb.checked);
+        fileList.querySelectorAll('.folder-refresh').forEach(btn => {
+            btn.addEventListener('click', e => {
+                e.stopPropagation(); // don't collapse the folder as well
+                refreshFolder(btn.dataset.path);
             });
         });
 
@@ -802,14 +841,37 @@
         });
     }
 
-    function toggleFolderLive(path, live) {
-        fetch('/api/folders/toggle-live', {
+    // refreshFolder asks the daemon to walk a followed folder again and register
+    // whatever has appeared since. The result has to outlive the re-render that
+    // the refresh itself triggers, so it lives in state keyed by folder path
+    // rather than on the button element, which is replaced by then.
+    function refreshFolder(path) {
+        setRefreshNote(path, '…', true);
+        fetch('/api/folders/refresh', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: path, live: live }),
-        }).catch(err => {
-            console.error('Failed to toggle live:', err);
-        });
+            body: JSON.stringify({ path: path }),
+        })
+            .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+            .then(d => setRefreshNote(path, d.added ? '+' + d.added : 'nothing new', false))
+            .catch(err => {
+                console.error('Failed to refresh folder:', err);
+                setRefreshNote(path, 'failed', false);
+            });
+    }
+
+    function setRefreshNote(path, text, busy) {
+        if (refreshNote) clearTimeout(refreshNote.timer);
+        refreshNote = { path: path, text: text, busy: busy };
+        if (!busy) {
+            refreshNote.timer = setTimeout(() => {
+                if (refreshNote && refreshNote.path === path) {
+                    refreshNote = null;
+                    renderFileList();
+                }
+            }, 2500);
+        }
+        renderFileList();
     }
 
     function removeFile(path) {

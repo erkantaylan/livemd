@@ -8,19 +8,18 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
-
-	"github.com/fsnotify/fsnotify"
 )
 
-// WatchedFolder is a directory the daemon "follows": it auto-registers any new
-// file with a matching extension (and not gitignored) when it appears on disk.
+// WatchedFolder is a directory the daemon "follows": walking it registers every
+// file with a matching extension (and not gitignored). It is walked when the
+// folder is first followed, when the daemon restores it from saved state, and
+// whenever the folder's Refresh button asks for another look — the daemon does
+// not watch the directory for new files.
 type WatchedFolder struct {
 	Path       string   `json:"path"`
 	Extensions []string `json:"extensions,omitempty"` // empty = defaultExtensions
 	Recursive  bool     `json:"recursive"`
 	Depth      int      `json:"depth,omitempty"` // 0 = unlimited (non-git mode only)
-	Live       bool     `json:"live"`
 }
 
 // allowedExt returns true if path matches the folder's extension filter.
@@ -137,191 +136,3 @@ func walkFolder(folder *WatchedFolder) ([]string, error) {
 	})
 	return files, err
 }
-
-// FolderManager owns a single fsnotify watcher across every followed folder
-// directory and dispatches Create events to the Hub for auto-registration.
-type FolderManager struct {
-	hub      *Hub
-	watcher  *fsnotify.Watcher
-	mu       sync.Mutex
-	folders  map[string]*WatchedFolder // root path -> folder
-	dirToRoot map[string]string         // any subdir path -> folder.Path it belongs to
-	done     chan struct{}
-}
-
-func NewFolderManager(hub *Hub) (*FolderManager, error) {
-	w, err := fsnotify.NewWatcher()
-	if err != nil {
-		return nil, err
-	}
-	fm := &FolderManager{
-		hub:       hub,
-		watcher:   w,
-		folders:   make(map[string]*WatchedFolder),
-		dirToRoot: make(map[string]string),
-		done:      make(chan struct{}),
-	}
-	go fm.run()
-	return fm, nil
-}
-
-// Follow registers a folder, runs initial discovery, and starts watching it
-// (recursively if folder.Recursive). Returns the list of newly discovered files.
-func (fm *FolderManager) Follow(folder *WatchedFolder) ([]string, error) {
-	fm.mu.Lock()
-	fm.folders[folder.Path] = folder
-	fm.mu.Unlock()
-
-	// Initial discovery
-	files, err := walkFolder(folder)
-	if err != nil {
-		return nil, err
-	}
-
-	// Subscribe directories so future Create events fire.
-	if err := fm.subscribeTree(folder.Path, folder); err != nil {
-		fm.hub.logger.Warn(fmt.Sprintf("Folder watcher subscribe partial failure for %s: %v", folder.Path, err))
-	}
-	return files, nil
-}
-
-// Unfollow stops watching a folder (subdirs go too).
-func (fm *FolderManager) Unfollow(rootPath string) {
-	fm.mu.Lock()
-	defer fm.mu.Unlock()
-	for dir, root := range fm.dirToRoot {
-		if root == rootPath {
-			fm.watcher.Remove(dir)
-			delete(fm.dirToRoot, dir)
-		}
-	}
-	delete(fm.folders, rootPath)
-}
-
-// SetLive flips the auto-add flag without un-subscribing.
-func (fm *FolderManager) SetLive(rootPath string, live bool) {
-	fm.mu.Lock()
-	defer fm.mu.Unlock()
-	if f, ok := fm.folders[rootPath]; ok {
-		f.Live = live
-	}
-}
-
-func (fm *FolderManager) Close() {
-	close(fm.done)
-	fm.watcher.Close()
-}
-
-// subscribeTree adds the folder root and all subdirs (if recursive) to fsnotify.
-// On Linux/macOS fsnotify isn't recursive, so we walk and add explicitly.
-func (fm *FolderManager) subscribeTree(root string, folder *WatchedFolder) error {
-	rootDepth := strings.Count(root, string(filepath.Separator))
-	maxDepth := folder.Depth
-	if maxDepth == 0 {
-		maxDepth = 10
-	}
-	return filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !info.IsDir() {
-			return nil
-		}
-		if strings.HasPrefix(info.Name(), ".") && p != root {
-			return filepath.SkipDir
-		}
-		if !folder.Recursive && p != root {
-			return filepath.SkipDir
-		}
-		depth := strings.Count(p, string(filepath.Separator)) - rootDepth
-		if depth > maxDepth {
-			return filepath.SkipDir
-		}
-		fm.mu.Lock()
-		fm.dirToRoot[p] = root
-		fm.mu.Unlock()
-		_ = fm.watcher.Add(p)
-		return nil
-	})
-}
-
-func (fm *FolderManager) run() {
-	for {
-		select {
-		case <-fm.done:
-			return
-		case ev, ok := <-fm.watcher.Events:
-			if !ok {
-				return
-			}
-			if ev.Op&fsnotify.Create == fsnotify.Create {
-				fm.handleCreate(ev.Name)
-			}
-		case err, ok := <-fm.watcher.Errors:
-			if !ok {
-				return
-			}
-			fm.hub.logger.Warn(fmt.Sprintf("Folder watcher error: %v", err))
-		}
-	}
-}
-
-func (fm *FolderManager) handleCreate(path string) {
-	fm.mu.Lock()
-	parentDir := filepath.Dir(path)
-	rootPath, ok := fm.dirToRoot[parentDir]
-	if !ok {
-		fm.mu.Unlock()
-		return
-	}
-	folder, ok := fm.folders[rootPath]
-	if !ok {
-		fm.mu.Unlock()
-		return
-	}
-	live := folder.Live
-	fm.mu.Unlock()
-
-	if !live {
-		fm.hub.logger.Info(fmt.Sprintf("Live=off, skipping create: %s", filepath.Base(path)))
-		return
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		return
-	}
-
-	if info.IsDir() {
-		if folder.Recursive {
-			_ = fm.subscribeTree(path, folder)
-			// New subdir might already contain files (e.g. created via mv).
-			files, _ := walkFolder(&WatchedFolder{Path: path, Extensions: folder.Extensions, Recursive: true, Depth: folder.Depth})
-			for _, f := range files {
-				fm.maybeAddFile(folder, f)
-			}
-		}
-		return
-	}
-
-	fm.maybeAddFile(folder, path)
-}
-
-func (fm *FolderManager) maybeAddFile(folder *WatchedFolder, path string) {
-	if !folder.allowedExt(path) {
-		return
-	}
-	if isGitRepo(folder.Path) && gitIsIgnored(folder.Path, path) {
-		return
-	}
-	if err := fm.hub.AddFile(path); err != nil {
-		// Already-registered errors are expected when a file came in via two paths.
-		if !strings.Contains(err.Error(), "already registered") {
-			fm.hub.logger.Warn(fmt.Sprintf("Auto-add %s: %v", path, err))
-		}
-		return
-	}
-	fm.hub.logger.Info(fmt.Sprintf("Auto-added: %s", filepath.Base(path)))
-	fm.hub.persistState()
-}
-

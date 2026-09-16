@@ -74,7 +74,7 @@ livemd start --detach
 livemd add README.md
 livemd add docs/guide.md
 
-# Follow a folder (auto-adds new files as they appear)
+# Follow a folder (its Refresh button picks up files added later)
 livemd add ./docs -r
 livemd add ./src -r --filter "md,go,js"
 livemd add ./misc -r --depth 5         # cap depth in non-git folders
@@ -125,8 +125,8 @@ livemd add docs/demo.md
 ## Features
 
 - **Persistent server** - Start once, add files anytime; state survives restart
-- **Followed folders** - `livemd add ./dir -r` keeps watching for new files; gitignored files are skipped automatically when the folder is in a git repo
-- **Tree view sidebar** - Collapsible folder structure with a Live toggle on followed folders
+- **Followed folders** - `livemd add ./dir -r` registers everything in a directory; gitignored files are skipped automatically when the folder is in a git repo. A Refresh button on each followed folder picks up files added since
+- **Tree view sidebar** - Collapsible folder structure with a Refresh button on followed folders
 - **Lazy watching** - Files are registered but only actively watched when selected, and content is rendered on demand: the daemon holds no HTML, so tracking a 40 MB file costs nothing until you open it
 - **Many viewers** - Markdown (GFM + mermaid + KaTeX math), 50+ syntax-highlighted code languages, images, PDFs, audio, video, CSV/TSV as tables
 - **Preview / Raw toggle** - Markdown and HTML switch between the rendered document and the original source; the choice is remembered per file and travels in the URL

@@ -119,11 +119,22 @@ body.sidebar-resizing {
 
 /* Tree view */
 .tree-root {
+    display: flex;
+    align-items: center;
     padding: 4px 12px;
     font-size: 12px;
     font-weight: 600;
     color: #9cdcfe;
     border-bottom: 1px solid #333;
+}
+
+/* A followed folder with no files of its own still needs its Refresh button */
+.tree-folder.is-empty {
+    cursor: default;
+    padding-left: 12px;
+}
+.tree-folder.is-empty .folder-name {
+    opacity: 0.6;
 }
 
 .tree-folder {
@@ -684,25 +695,35 @@ article > :not(pre):not(.chroma) {
     word-break: break-word;
 }
 
-/* Followed-folder live toggle */
-.folder-live {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
+/* Followed-folder refresh: re-walk the folder for files added since */
+.folder-refresh {
     margin-left: 8px;
-    font-size: 10px;
+    padding: 0 4px;
+    font-size: 12px;
+    line-height: 1;
+    background: none;
+    border: none;
     color: #888;
     cursor: pointer;
     user-select: none;
 }
-.folder-live input {
-    margin: 0;
-    cursor: pointer;
-}
-.folder-live span {
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-.folder-live input:checked + span {
+.folder-refresh:hover {
     color: #2db26b;
+}
+.folder-refresh:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+/* .folder-name flexes to fill the row, which pushes the button to the right
+   edge — straight under the absolutely-positioned remove ✕. Reserve its width
+   so a click on Refresh cannot land on "remove folder" instead. */
+.tree-folder .folder-refresh {
+    margin-right: 22px;
+}
+/* Result of the last refresh, shown for a moment beside the button */
+.folder-refresh-note {
+    margin-left: 4px;
+    font-size: 10px;
+    color: #888;
+    user-select: none;
 }

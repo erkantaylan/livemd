@@ -415,7 +415,6 @@ func addFolder(folderPath string, port int, filterExts string, maxDepth int) {
 		"extensions": exts,
 		"recursive":  true,
 		"depth":      maxDepth,
-		"live":       true,
 	})
 	resp, err := http.Post(fmt.Sprintf("http://localhost:%d/api/folders", port), "application/json", bytes.NewReader(body))
 	if err != nil {

@@ -57,13 +57,12 @@ type Hub struct {
 	register   chan *Client
 	unregister chan *Client
 
-	mu        sync.RWMutex
-	files     map[string]*WatchedFile
-	watchers  map[string]*Watcher
-	folders   map[string]*WatchedFolder
-	folderMgr *FolderManager
-	renderer  *Renderer
-	logger    *Logger
+	mu       sync.RWMutex
+	files    map[string]*WatchedFile
+	watchers map[string]*Watcher
+	folders  map[string]*WatchedFolder
+	renderer *Renderer
+	logger   *Logger
 }
 
 func NewHub() *Hub {
@@ -79,13 +78,6 @@ func NewHub() *Hub {
 		logger:     NewLogger(100),
 	}
 	h.logger.SetHub(h)
-
-	fm, err := NewFolderManager(h)
-	if err != nil {
-		h.logger.Warn(fmt.Sprintf("Could not create folder watcher: %v", err))
-	} else {
-		h.folderMgr = fm
-	}
 
 	h.restoreFromState()
 	return h
@@ -130,15 +122,12 @@ func (h *Hub) restoreFromState() {
 		}
 	}
 
-	if h.folderMgr == nil {
-		return
-	}
 	for i := range state.Folders {
 		folder := state.Folders[i] // copy
 		if _, err := os.Stat(folder.Path); err != nil {
 			continue
 		}
-		files, err := h.folderMgr.Follow(&folder)
+		files, err := walkFolder(&folder)
 		if err != nil {
 			h.logger.Warn(fmt.Sprintf("Restore folder %s: %v", folder.Path, err))
 			continue
@@ -227,14 +216,10 @@ func (h *Hub) broadcastLog(entry LogEntry) {
 	h.broadcast <- data
 }
 
-// FollowFolder registers a folder, runs initial discovery, and starts watching
-// it for new files. Live defaults to true (the user opted into "follow"; checkbox
-// can flip it later). Idempotent: re-following an existing folder returns nil.
+// FollowFolder registers a folder and walks it once, registering what it finds.
+// Idempotent: re-following an existing folder returns nil. New files that appear
+// later are picked up by RefreshFolder, not automatically.
 func (h *Hub) FollowFolder(folder *WatchedFolder) error {
-	if h.folderMgr == nil {
-		return fmt.Errorf("folder watcher unavailable")
-	}
-
 	h.mu.Lock()
 	for existing := range h.folders {
 		if PathsEqual(existing, folder.Path) {
@@ -245,7 +230,7 @@ func (h *Hub) FollowFolder(folder *WatchedFolder) error {
 	h.folders[folder.Path] = folder
 	h.mu.Unlock()
 
-	files, err := h.folderMgr.Follow(folder)
+	files, err := walkFolder(folder)
 	if err != nil {
 		h.mu.Lock()
 		delete(h.folders, folder.Path)
@@ -263,8 +248,9 @@ func (h *Hub) FollowFolder(folder *WatchedFolder) error {
 	return nil
 }
 
-// UnfollowFolder stops auto-adding new files for a folder. Existing watched
-// files stay registered (use RemoveFolder to also drop them).
+// UnfollowFolder drops a folder from the followed list, so Refresh no longer
+// offers it. Existing watched files stay registered (use RemoveFolder to also
+// drop them).
 func (h *Hub) UnfollowFolder(path string) error {
 	h.mu.Lock()
 	var actual string
@@ -281,40 +267,54 @@ func (h *Hub) UnfollowFolder(path string) error {
 	delete(h.folders, actual)
 	h.mu.Unlock()
 
-	if h.folderMgr != nil {
-		h.folderMgr.Unfollow(actual)
-	}
 	h.logger.Info(fmt.Sprintf("Unfollowed folder: %s", actual))
 	h.broadcastFileList()
 	h.persistState()
 	return nil
 }
 
-// SetFolderLive toggles whether new files in the folder are auto-added.
-func (h *Hub) SetFolderLive(path string, live bool) error {
-	h.mu.Lock()
-	var actual string
+// RefreshFolder walks a followed folder again and registers whatever has
+// appeared since the last look. Folders are scanned when asked rather than
+// watched: a one-shot walk answers the same question a filesystem event would,
+// at the moment the reader actually wants to know.
+//
+// Returns the number of newly registered files. Files already in the watch list
+// come back as "already registered" errors from AddFile and are not counted.
+func (h *Hub) RefreshFolder(path string) (int, error) {
+	h.mu.RLock()
 	var folder *WatchedFolder
 	for existing, f := range h.folders {
 		if PathsEqual(existing, path) {
-			actual = existing
 			folder = f
 			break
 		}
 	}
+	h.mu.RUnlock()
 	if folder == nil {
-		h.mu.Unlock()
-		return fmt.Errorf("folder not followed: %s", path)
+		return 0, fmt.Errorf("folder not followed: %s", path)
 	}
-	folder.Live = live
-	h.mu.Unlock()
 
-	if h.folderMgr != nil {
-		h.folderMgr.SetLive(actual, live)
+	files, err := walkFolder(folder)
+	if err != nil {
+		return 0, err
+	}
+
+	added := 0
+	for _, f := range files {
+		if err := h.AddFile(f); err == nil {
+			added++
+		}
+	}
+
+	name := filepath.Base(folder.Path)
+	if added > 0 {
+		h.logger.Info(fmt.Sprintf("Refreshed %s: %d new file(s)", name, added))
+	} else {
+		h.logger.Info(fmt.Sprintf("Refreshed %s: nothing new", name))
 	}
 	h.broadcastFileList()
 	h.persistState()
-	return nil
+	return added, nil
 }
 
 func (h *Hub) AddFile(path string) error {
@@ -567,7 +567,8 @@ func (h *Hub) RemoveFolder(folderPath string) int {
 		}
 		delete(h.files, path)
 	}
-	// If this matches a followed folder root, also unfollow so we stop auto-adding.
+	// If this matches a followed folder root, unfollow it too — otherwise the
+	// next Refresh would pull straight back in what was just removed.
 	var unfollow string
 	for existing := range h.folders {
 		if PathsEqual(existing, folderPath) {
@@ -579,10 +580,6 @@ func (h *Hub) RemoveFolder(folderPath string) int {
 		delete(h.folders, unfollow)
 	}
 	h.mu.Unlock()
-
-	if unfollow != "" && h.folderMgr != nil {
-		h.folderMgr.Unfollow(unfollow)
-	}
 
 	if len(toRemove) > 0 {
 		h.logger.Info(fmt.Sprintf("Removed %d file(s) from folder: %s", len(toRemove), filepath.Base(folderPath)))
@@ -894,8 +891,8 @@ func (s *Server) routes() *http.ServeMux {
 		}
 		s.handleDeactivateFile(w, r)
 	})
-	// Followed-folder management. POST follows, DELETE unfollows, /toggle-live
-	// flips the auto-add bit.
+	// Followed-folder management. POST follows, DELETE unfollows, /refresh
+	// walks the folder again for files that have appeared since.
 	mux.HandleFunc("/api/folders", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
@@ -904,7 +901,6 @@ func (s *Server) routes() *http.ServeMux {
 				http.Error(w, "Invalid request", http.StatusBadRequest)
 				return
 			}
-			req.Live = true
 			if err := s.hub.FollowFolder(&req); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
@@ -925,24 +921,25 @@ func (s *Server) routes() *http.ServeMux {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
-	mux.HandleFunc("/api/folders/toggle-live", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/folders/refresh", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		var req struct {
 			Path string `json:"path"`
-			Live bool   `json:"live"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request", http.StatusBadRequest)
 			return
 		}
-		if err := s.hub.SetFolderLive(req.Path, req.Live); err != nil {
+		added, err := s.hub.RefreshFolder(req.Path)
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int{"added": added})
 	})
 	mux.HandleFunc("/api/files/remove-folder", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
