@@ -10,13 +10,21 @@ Everything below is the checklist around that one push. Follow it top to bottom.
 
 ```bash
 gh auth status                  # must be logged in; the tag push alone is not enough
-git fetch --tags                # local tags lag behind; v-sort, not alphabetical
+git fetch origin --tags         # refs here go stale; fetch before believing anything
+git status -sb | head -1        # must say ahead-only, never "behind"
 git tag --sort=-v:refname | head -3
 gh release list --limit 3
 ```
 
-`git tag | tail` sorts alphabetically and will tell you `v0.9.0` is the newest
-when `v1.1.0` exists. Always use `--sort=-v:refname`.
+Two ways this lies to you:
+
+- **`git tag | tail` sorts alphabetically** and will name `v0.9.0` as newest
+  while `v1.1.0` exists. Always `--sort=-v:refname`.
+- **`ahead N` before a fetch means nothing.** This clone sat diverged from
+  origin for days — `ahead 6` was really `ahead 6, behind 4`, and the missing
+  four were what the last release was built from. If `git status -sb` says
+  `behind`, stop: integrate first, and re-run the checks, because the merged
+  result is not what either side tested.
 
 ## 1. Check the tree is releasable
 
@@ -75,11 +83,16 @@ replaces.
 ## 4. Push the commits
 
 ```bash
-git push origin master
+git push origin master          # do NOT pipe this through head/tail
 ```
 
 The tag must point at a commit that is already on the remote, or the workflow
 checks out a commit nobody else can see.
+
+Read the result before continuing. Piping the push through `tail` hands the
+pipeline `tail`'s exit status, so a rejected push looks like a success to
+`&&` — which is how a tag once got pushed onto a line that was never on the
+remote. If the push is rejected, go back to the divergence check above.
 
 ## 5. Tag and push
 
@@ -119,6 +132,11 @@ livemd list                     # state survived: the same files and folders
 
 ## If it goes wrong
 
+- **Tag pushed by mistake.** Cancel the run and delete the tag both sides
+  before anything downloads it:
+  `gh run cancel <id>`, `git push origin ":refs/tags/$VERSION"`,
+  `git tag -d "$VERSION"`. Confirm with `gh release list` that no release was
+  created.
 - **Workflow failed, tag already pushed.** Fix the cause, then move the tag:
   `git tag -d "$VERSION" && git push origin ":refs/tags/$VERSION"`, commit the
   fix, and start again from step 4. Only do this while nobody has downloaded the
