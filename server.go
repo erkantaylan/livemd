@@ -690,9 +690,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
-// handleRaw serves the raw bytes of a watched file. The query parameter `path`
-// must match (case-insensitively on Windows) a path in Hub.files; any other
-// path is treated as not-found, blocking arbitrary disk access.
+// handleRaw serves the raw bytes of a file. The query parameter `path` must
+// name either a watched file or one inside a tracked root (resolveReadable);
+// any other path is treated as not-found, blocking arbitrary disk access.
 func (s *Server) handleRaw(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -704,17 +704,8 @@ func (s *Server) handleRaw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Allowlist lookup: only serve files that are registered in the watch list.
-	s.hub.mu.RLock()
-	var actual string
-	for k := range s.hub.files {
-		if PathsEqual(k, requested) {
-			actual = k
-			break
-		}
-	}
-	s.hub.mu.RUnlock()
-	if actual == "" {
+	actual, ok := s.hub.resolveReadable(requested)
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
@@ -724,9 +715,11 @@ func (s *Server) handleRaw(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, actual)
 }
 
-// handleRender re-renders a watched file in a caller-chosen view
-// (mode=raw forces the source view). Backs the Preview/Raw toggle.
-// Same allowlist as /raw: only paths already in the watch list.
+// handleRender renders a file in a caller-chosen view (mode=raw forces the
+// source view). Backs the Preview/Raw toggle, and doubles as the client's test
+// of whether an untracked path may be opened at all — same allowlist as /raw.
+// The response echoes the resolved path so the client can adopt the daemon's
+// spelling of it (symlinks followed, separators and case as the OS has them).
 func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	requested := r.URL.Query().Get("path")
 	if requested == "" {
@@ -738,16 +731,8 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		mode = modeRaw
 	}
 
-	s.hub.mu.RLock()
-	var actual string
-	for k := range s.hub.files {
-		if PathsEqual(k, requested) {
-			actual = k
-			break
-		}
-	}
-	s.hub.mu.RUnlock()
-	if actual == "" {
+	actual, ok := s.hub.resolveReadable(requested)
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
@@ -758,7 +743,7 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"html": html})
+	json.NewEncoder(w).Encode(map[string]string{"html": html, "path": actual})
 }
 
 func (s *Server) handleAddFile(w http.ResponseWriter, r *http.Request) {
@@ -852,23 +837,18 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(info)
 }
 
-func StartServer(port int) {
-	hub := NewHub()
-	go hub.Run()
-
-	// Restore previously watched files
-	
-
-	s := &Server{
-		hub:  hub,
-		port: port,
-	}
-
+// routes builds the daemon's route table. Split out from StartServer so a
+// test can drive the real endpoints without binding a port or taking the
+// single-instance lock.
+func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 
-	// Serve index.html at root
+	// Everything that isn't one of the endpoints below is a file path: the app
+	// lives at /home/me/doc.md so a path pasted from a terminal is a working
+	// URL, and a link copied from the page is a working path. The client reads
+	// location.pathname and opens it.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
+		if r.URL.Path == "/favicon.ico" {
 			http.NotFound(w, r)
 			return
 		}
@@ -1002,10 +982,26 @@ func StartServer(port int) {
 		w.WriteHeader(http.StatusOK)
 		go func() {
 			time.Sleep(100 * time.Millisecond)
-			hub.Close()
+			s.hub.Close()
 			s.server.Shutdown(context.Background())
 		}()
 	})
+
+	return mux
+}
+
+func StartServer(port int) {
+	hub := NewHub()
+	go hub.Run()
+
+	// Restore previously watched files
+
+	s := &Server{
+		hub:  hub,
+		port: port,
+	}
+
+	mux := s.routes()
 
 	s.server = &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),

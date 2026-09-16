@@ -456,6 +456,28 @@ main {
     color: #fff;
 }
 
+/* Track button: only shown for an untracked file reached through a link */
+.track-btn {
+    font-size: 11px;
+    padding: 3px 10px;
+    background: #fff;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    cursor: pointer;
+    color: #555;
+    line-height: 1.4;
+    flex-shrink: 0;
+}
+
+.track-btn:hover {
+    background: #f6f8fa;
+    color: #24292f;
+}
+
+.track-btn.is-hidden {
+    display: none;
+}
+
 /* Rendered HTML preview iframe fills the content area edge to edge */
 .content > .html-preview {
     margin: 0;

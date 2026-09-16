@@ -68,6 +68,7 @@ func NewRenderer() *Renderer {
 			parser.WithAutoHeadingID(),
 			parser.WithASTTransformers(
 				util.Prioritized(&mermaidTransformer{}, 100),
+				util.Prioritized(&linkTransformer{}, 200),
 			),
 			parser.WithBlockParsers(
 				// Before the paragraph parser (1000) so $$ blocks are claimed
@@ -266,7 +267,7 @@ func (r *Renderer) RenderMode(path string, mode renderMode) (string, error) {
 	}
 
 	if mode == modeAuto && isMarkdown(path) {
-		return r.renderMarkdown(content)
+		return r.renderMarkdown(path, content)
 	}
 
 	// Line numbers help in code but clutter prose, and they land in the
@@ -274,9 +275,14 @@ func (r *Renderer) RenderMode(path string, mode renderMode) (string, error) {
 	return r.renderCode(path, content, !isMarkdown(path))
 }
 
-func (r *Renderer) renderMarkdown(content []byte) (string, error) {
+// renderMarkdown converts a document, passing its own directory down to
+// linkTransformer so relative links and images resolve the way they do on disk.
+func (r *Renderer) renderMarkdown(path string, content []byte) (string, error) {
+	pc := parser.NewContext()
+	pc.Set(baseDirKey, filepath.Dir(path))
+
 	var buf bytes.Buffer
-	if err := r.md.Convert(content, &buf); err != nil {
+	if err := r.md.Convert(content, &buf, parser.WithContext(pc)); err != nil {
 		return "", err
 	}
 	return buf.String(), nil

@@ -40,9 +40,10 @@ livemd install                 # self-update from the latest GitHub release
 1. `livemd list` — if it errors, the daemon is not running; `livemd start --detach`.
    The output also tells you the active port; do not assume 3000.
 2. `livemd add <path>` for the file(s) the user wants to see.
-3. Hand back a deep link in one line:
-   `http://localhost:3000/?file=<path>` (add `&view=raw` when the source matters
-   more than the rendering).
+3. Hand back a deep link in one line: the port, then the file's own absolute
+   path — `http://localhost:3000/home/me/notes.md` (append `?view=raw` when the
+   source matters more than the rendering, `#heading` to land on a section).
+   On Windows the drive letter follows the slash: `/C:/Users/me/notes.md`.
 
 That link is the whole handoff. Do not also paste the file contents into the
 terminal — displaying it twice is the thing livemd exists to avoid.

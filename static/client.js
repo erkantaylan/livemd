@@ -81,6 +81,7 @@
     const contentHeaderFilename = document.getElementById('content-header-filename');
     const contentHeaderPath = document.getElementById('content-header-path');
     const contentHeaderChanged = document.getElementById('content-header-changed');
+    const trackBtn = document.getElementById('track-btn');
     const viewToggle = document.getElementById('view-toggle');
     const viewPreviewBtn = document.getElementById('view-preview-btn');
     const viewRawBtn = document.getElementById('view-raw-btn');
@@ -99,6 +100,10 @@
     let folders = []; // followed folders (auto-add new files)
     let logs = [];
     let activeFile = null;
+    // The untracked file currently on screen, if any: reached by following a
+    // markdown link to a neighbour, rendered without joining the watch list.
+    // At most one at a time — it exists only as long as it is being viewed.
+    let ephemeral = null;
 
     function findFollowedFolder(path) {
         // case-insensitive on Windows; assume server already normalized
@@ -107,23 +112,109 @@
     let collapsedFolders = new Set();
     let changelogLoaded = false;
 
-    // --- Deep links: the URL always mirrors the selected file (?file=<path>),
-    // so any page state is copy-pasteable. Opening a link to an untracked file
-    // auto-tracks it via /api/watch. ---
-    let pendingUrlFile = new URLSearchParams(location.search).get('file');
-    const pendingUrlView = new URLSearchParams(location.search).get('view');
+    // --- Deep links: the address bar *is* the file's path, so
+    // http://localhost:3000/home/me/notes.md is equally what you get after
+    // clicking a link and what you can paste in from a terminal. ?file= is
+    // still honoured for links saved before the switch. ---
+    const winPathRe = /^[A-Za-z]:[\\/]/;
 
-    function syncUrl(path) {
-        if (!path) {
-            history.replaceState(null, '', '/');
-            return;
+    // pathsEqual mirrors the daemon's comparison: separators normalized, and
+    // case ignored on Windows only — two files on Linux may differ by case
+    // alone.
+    function pathsEqual(a, b) {
+        if (!a || !b) return a === b;
+        let na = a.replace(/\\/g, '/');
+        let nb = b.replace(/\\/g, '/');
+        if (winPathRe.test(a) || winPathRe.test(b)) {
+            na = na.toLowerCase();
+            nb = nb.toLowerCase();
         }
-        let url = '/?file=' + encodeURIComponent(path);
-        if (hasTwoViews(path) && viewMode(path) === 'raw') url += '&view=raw';
-        history.replaceState(null, '', url);
+        return na === nb;
     }
 
+    // encodeSegment escapes one path segment, then puts back the characters a
+    // URL path may legally carry — chiefly the colon, so a Windows drive stays
+    // readable as /C:/Users/... rather than /C%3A/Users/...
+    function encodeSegment(seg) {
+        return encodeURIComponent(seg).replace(/%(3A|40|26|3D|2B|24|2C)/gi, m => decodeURIComponent(m));
+    }
+
+    function pathToUrl(path, hash) {
+        if (!path) return '/';
+        let slashed = path.replace(/\\/g, '/');
+        if (slashed[0] !== '/') slashed = '/' + slashed; // C:/Users/… → /C:/Users/…
+        let url = slashed.split('/').map(encodeSegment).join('/');
+        if (hasTwoViews(path) && viewMode(path) === 'raw') url += '?view=raw';
+        // Keep the heading a link aimed at, so copying the URL copies the spot.
+        if (hash) url += '#' + encodeURIComponent(hash);
+        return url;
+    }
+
+    function urlToPath(pathname) {
+        let p = pathname;
+        try {
+            p = decodeURIComponent(pathname);
+        } catch (e) {
+            /* hand-typed URL with a stray % — take it literally */
+        }
+        if (!p || p === '/') return null;
+        if (/^\/[A-Za-z]:/.test(p)) p = p.slice(1); // drop the URL's leading slash
+        return p;
+    }
+
+    const initialParams = new URLSearchParams(location.search);
+    let pendingUrlFile = initialParams.get('file') || urlToPath(location.pathname);
+    const pendingUrlView = initialParams.get('view');
+    // Consumed by the next render, so /doc.md#install lands on the heading.
+    let pendingHash = location.hash ? location.hash.slice(1) : '';
+    // True while a URL-supplied path is still being resolved, so the default
+    // "select the first file" never races ahead of it.
+    let urlResolving = false;
+    // Whether the pending selection completes a navigation the reader started
+    // (tracking a file from a link) or just restores the URL this page loaded
+    // with. The first earns a history entry; the second would duplicate one.
+    let pendingUrlPush = false;
+    // Set while the content area shows something other than a file — an error,
+    // the welcome screen — so a metadata broadcast doesn't quietly paint the
+    // previous document back over it.
+    let contentOverride = false;
+
+    // syncUrl mirrors the selected file in the address bar. Navigation pushes a
+    // history entry so Back returns to the previous document; a change to the
+    // same file (the Preview/Raw toggle) replaces it, or Back would walk
+    // backwards through view flips instead of through documents.
+    function syncUrl(path, push, hash) {
+        const url = pathToUrl(path, hash);
+        if (push && url !== location.pathname + location.search) {
+            history.pushState({ path: path }, '', url);
+        } else {
+            history.replaceState({ path: path }, '', url);
+        }
+    }
+
+    // Back, Forward, and the mouse's side buttons all land here. The URL is the
+    // source of truth: re-open whatever file it names, without pushing again.
+    window.addEventListener('popstate', () => {
+        const params = new URLSearchParams(location.search);
+        const path = urlToPath(location.pathname) || params.get('file');
+        if (!path) {
+            activeFile = null;
+            ephemeral = null;
+            showWelcome();
+            renderFileList();
+            return;
+        }
+        if (params.get('view') === 'raw') {
+            viewModes[path] = 'raw';
+        } else {
+            delete viewModes[path];
+        }
+        saveViewModes();
+        openPath(path, { push: false, hash: location.hash.slice(1) });
+    });
+
     function showOpenError(path, msg) {
+        contentOverride = true;
         content.innerHTML = `
             <div class="welcome">
                 <h1 class="has-text-danger">Cannot open file</h1>
@@ -132,6 +223,111 @@
             </div>
         `;
         updateContentHeader(null);
+    }
+
+    function showWelcome() {
+        contentOverride = true;
+        content.innerHTML = `
+            <div class="welcome">
+                <h1>LiveMD</h1>
+                <p>Add a markdown file to get started:</p>
+                <pre><code>livemd add README.md</code></pre>
+            </div>
+        `;
+        document.title = 'LiveMD';
+        updateContentHeader(null);
+    }
+
+    // showOutsideRoots is the answer to a link that points somewhere livemd
+    // will not read on its own. Tracking it is a deliberate act, so it gets a
+    // button rather than happening behind the reader's back.
+    function showOutsideRoots(path) {
+        contentOverride = true;
+        content.innerHTML = `
+            <div class="welcome">
+                <h1 class="has-text-danger">Outside the tracked paths</h1>
+                <p><code>${escapeHtml(path)}</code></p>
+                <p>Links open files inside a folder you follow, or beside a file you track.
+                   This one is somewhere else.</p>
+                <p><button class="button is-small" id="track-anyway-btn">Track this file</button></p>
+            </div>
+        `;
+        updateContentHeader(null);
+        const btn = document.getElementById('track-anyway-btn');
+        if (btn) btn.addEventListener('click', () => trackPath(path));
+    }
+
+    // trackPath promotes a path into the watch list — the one action that grows
+    // it — and selects the file once the server broadcasts it back.
+    function trackPath(path) {
+        addPath(path).then(res => {
+            if (!res.ok) {
+                showOpenError(path, res.msg || 'Could not track this path.');
+                return;
+            }
+            if (!res.folder) {
+                pendingUrlFile = path;
+                pendingUrlPush = true;
+                resolvePendingUrlFile.tried = false;
+            }
+        });
+    }
+
+    // fileFor resolves a path to something renderable: a tracked file, or the
+    // untracked neighbour currently on screen.
+    function fileFor(path) {
+        const tracked = files.find(f => pathsEqual(f.path, path));
+        if (tracked) return tracked;
+        if (ephemeral && pathsEqual(ephemeral.path, path)) return ephemeral;
+        return null;
+    }
+
+    function baseName(path) {
+        return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
+    }
+
+    // openPath is the single way a file reaches the screen, whoever asked — the
+    // sidebar, a markdown link, a pasted URL, Back. A tracked file is shown
+    // straight away; anything else is offered to the server first, which
+    // renders it only if it sits inside a tracked root. That is what lets a
+    // link to a sibling document work without the watch list quietly growing.
+    // opts.onMissing overrides the refusal message (the URL bar uses it to fall
+    // back to tracking, since typing a path is itself a request to open it).
+    function openPath(path, opts) {
+        opts = opts || {};
+        const tracked = files.find(f => pathsEqual(f.path, path));
+        if (tracked) {
+            selectFile(tracked.path, opts);
+            return;
+        }
+
+        const mode = effectiveMode(path);
+        const url = '/api/render?path=' + encodeURIComponent(path) + (mode === 'raw' ? '&mode=raw' : '');
+        urlResolving = true;
+        fetch(url)
+            .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+            .then(d => {
+                urlResolving = false;
+                const actual = d.path || path;
+                // The render is already in hand — seed the cache so selectFile
+                // shows it without a second round trip.
+                cachePut(cacheKey(actual, mode), d.html);
+                ephemeral = { path: actual, name: baseName(actual), untracked: true };
+                selectFile(actual, opts);
+            })
+            .catch(() => {
+                if (!opts.onMissing) {
+                    urlResolving = false;
+                    showOutsideRoots(path);
+                    return;
+                }
+                // Stay "resolving" until the fallback settles, so the default
+                // first-file selection doesn't slip in and steal the view.
+                const done = opts.onMissing();
+                if (done && done.then) done.then(clear, clear);
+                else clear();
+                function clear() { urlResolving = false; }
+            });
     }
 
     // addPath tracks a file via the API; if the path turns out to be a
@@ -156,39 +352,67 @@
         }).catch(err => ({ ok: false, msg: String(err) }));
     }
 
+    // applyPendingView lets a ?view= in the link win over the remembered
+    // preference for that file.
+    function applyPendingView(path) {
+        if (pendingUrlView !== 'raw' && pendingUrlView !== 'preview') return;
+        if (pendingUrlView === 'raw') {
+            viewModes[path] = 'raw';
+        } else {
+            delete viewModes[path];
+        }
+        saveViewModes();
+    }
+
     // resolvePendingUrlFile is called on every files broadcast until the
-    // deep-linked file is selected or adding it failed.
+    // deep-linked file is on screen or opening it failed. Returns true while
+    // it is still working, so the default first-file selection stays out of
+    // the way.
     function resolvePendingUrlFile() {
-        if (!pendingUrlFile) return false;
-        const match = files.find(f => f.path === pendingUrlFile && !f.deleted);
+        if (!pendingUrlFile) return urlResolving;
+
+        const match = files.find(f => pathsEqual(f.path, pendingUrlFile) && !f.deleted);
         if (match) {
-            const target = pendingUrlFile;
             pendingUrlFile = null;
-            // A ?view= in the link wins over the remembered preference.
-            if (pendingUrlView === 'raw' || pendingUrlView === 'preview') {
-                if (pendingUrlView === 'raw') {
-                    viewModes[target] = 'raw';
-                } else {
-                    delete viewModes[target];
-                }
-                saveViewModes();
-            }
-            selectFile(target);
+            applyPendingView(match.path);
+            const push = pendingUrlPush;
+            pendingUrlPush = false;
+            selectFile(match.path, { push: push, hash: pendingHash });
+            pendingHash = '';
             return true;
         }
+
         if (!resolvePendingUrlFile.tried) {
             resolvePendingUrlFile.tried = true;
             const target = pendingUrlFile;
-            addPath(target).then(res => {
-                if (!res.ok) {
-                    pendingUrlFile = null;
-                    showOpenError(target, res.msg || 'Could not track this path.');
-                }
-                // On success the server broadcasts a files update, which
-                // re-enters resolvePendingUrlFile and selects the file.
+            pendingUrlFile = null;
+            applyPendingView(target);
+            const hash = pendingHash;
+            pendingHash = '';
+            // A path typed or pasted into the address bar is a request to open
+            // that path, so when it falls outside every tracked root this does
+            // what the Add box would: tracks the file, or follows it if it
+            // turns out to be a directory. Clicking a link never does this —
+            // reading a document is not consent to grow the watch list.
+            openPath(target, {
+                push: false,
+                hash: hash,
+                onMissing: () => addPath(target).then(res => {
+                    if (!res.ok) {
+                        showOpenError(target, res.msg || 'Could not open this path.');
+                        return;
+                    }
+                    // A file comes back through the branch above once the
+                    // server broadcasts it. A directory has nothing to select,
+                    // so the default first-file pick takes over.
+                    if (!res.folder) {
+                        pendingUrlFile = target;
+                        resolvePendingUrlFile.tried = false;
+                    }
+                }),
             });
         }
-        return true; // still resolving — suppress default first-file selection
+        return true;
     }
 
     function showAddPathError(msg) {
@@ -723,6 +947,7 @@
             content.scrollTop = scrollY;
             updateSubheader(file);
             updateViewToggle(file);
+            if (!keepScroll) consumePendingHash();
         };
 
         if (contentCache.has(key)) {
@@ -824,6 +1049,66 @@
         lineInfo.textContent = total ? total.toLocaleString() + ' lines' : '';
     }
 
+    // --- In-document links. The server rewrites markdown destinations into
+    // real URLs for this app, so a plain click would already load the right
+    // page — but as a full navigation, throwing away the WebSocket and the
+    // file list to rebuild them a moment later. Intercept the ordinary click
+    // and route it through the SPA; leave modified clicks to the browser,
+    // where ctrl/cmd/middle-click opens the file in a new tab precisely
+    // because the href is genuine. ---
+
+    // consumePendingHash scrolls to the heading a #fragment named, once the
+    // document it belongs to is on screen.
+    function consumePendingHash() {
+        const hash = pendingHash;
+        pendingHash = '';
+        if (!hash) return;
+        scrollToAnchor(hash);
+    }
+
+    function scrollToAnchor(id) {
+        let el = null;
+        try {
+            el = content.querySelector('#' + CSS.escape(id));
+        } catch (e) {
+            el = document.getElementById(id);
+        }
+        if (el) el.scrollIntoView();
+    }
+
+    content.addEventListener('click', e => {
+        if (e.defaultPrevented || e.button !== 0) return;
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        const anchor = e.target.closest && e.target.closest('a[href]');
+        if (!anchor || anchor.target === '_blank') return;
+
+        let url;
+        try {
+            url = new URL(anchor.getAttribute('href'), location.href);
+        } catch (err) {
+            return;
+        }
+        if (url.origin !== location.origin) return;
+        if (url.pathname === '/raw') return; // a direct fetch of the bytes
+
+        e.preventDefault();
+
+        // A bare #fragment is a jump inside the open document, not a
+        // navigation — no history entry, no re-render.
+        if (url.pathname === location.pathname && url.hash) {
+            scrollToAnchor(url.hash.slice(1));
+            return;
+        }
+
+        const path = urlToPath(url.pathname);
+        if (!path) return;
+        if (url.searchParams.get('view') === 'raw') {
+            viewModes[path] = 'raw';
+            saveViewModes();
+        }
+        openPath(path, { push: true, hash: url.hash.slice(1) });
+    });
+
     // Ctrl+A selects only the rendered content, not the whole page chrome.
     document.addEventListener('keydown', e => {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
@@ -851,6 +1136,7 @@
             content.innerHTML = '<div class="html-preview"><iframe class="html-preview-frame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" src="' + escapeHtml(src) + '"></iframe></div>';
             updateViewToggle(file);
             updateSubheader(file);
+            pendingHash = ''; // nothing on this page for a fragment to find
             return;
         }
         fetchAndShow(file, effectiveMode(file.path), keepScroll);
@@ -864,8 +1150,10 @@
             delete viewModes[activeFile];
         }
         saveViewModes();
-        syncUrl(activeFile);
-        const file = files.find(f => f.path === activeFile);
+        // Same document, different view: replace the history entry rather than
+        // push one, so Back steps between files instead of view flips.
+        syncUrl(activeFile, false);
+        const file = fileFor(activeFile);
         if (file) renderContent(file);
     }
 
@@ -875,10 +1163,17 @@
     function updateContentHeader(file) {
         updateViewToggle(file);
         updateSubheader(file);
+        trackBtn.classList.toggle('is-hidden', !file || !file.untracked);
         if (file) {
             contentHeaderFilename.textContent = file.name;
             contentHeaderPath.textContent = file.path;
-            contentHeaderChanged.textContent = file.lastChange ? 'Changed: ' + formatShortDateTime(file.lastChange) : '';
+            if (file.untracked) {
+                // Nothing is watching this file — say so, since the whole
+                // promise of the app is that the page follows the file.
+                contentHeaderChanged.textContent = 'Not tracked — no live reload';
+            } else {
+                contentHeaderChanged.textContent = file.lastChange ? 'Changed: ' + formatShortDateTime(file.lastChange) : '';
+            }
         } else {
             contentHeaderFilename.textContent = 'No file selected';
             contentHeaderPath.textContent = '';
@@ -886,13 +1181,22 @@
         }
     }
 
-    function selectFile(path) {
-        const file = files.find(f => f.path === path);
+    trackBtn.addEventListener('click', () => {
+        if (activeFile) trackPath(activeFile);
+    });
+
+    function selectFile(path, opts) {
+        opts = opts || {};
+        const file = fileFor(path);
         if (file && file.deleted) return; // Can't select deleted files
 
+        contentOverride = false;
         const previousFile = activeFile;
+        const previousTracked = previousFile && files.some(f => pathsEqual(f.path, previousFile));
         activeFile = path;
-        syncUrl(path);
+        if (!file || !file.untracked) ephemeral = null; // left the untracked view
+        pendingHash = opts.hash || '';
+        syncUrl(path, opts.push !== false && path !== previousFile, opts.hash);
         renderFileList();
 
         if (file) {
@@ -901,11 +1205,13 @@
             updateContentHeader(file);
         }
 
-        if (path && path !== previousFile) {
+        // Watching is a property of tracked files; an untracked neighbour has
+        // no watcher on the daemon side, so there is nothing to activate.
+        if (path !== previousFile && file && !file.untracked) {
             activateFile(path);
         }
 
-        if (previousFile && previousFile !== path) {
+        if (previousFile && previousFile !== path && previousTracked) {
             deactivateFile(previousFile);
         }
     }
@@ -950,11 +1256,19 @@
                     if (resolvePendingUrlFile()) {
                         // deep-linked file selected (or still being tracked)
                     } else if (!activeFile && files.length > 0) {
+                        // Landing on the first file isn't navigation the
+                        // reader did, so it replaces the entry rather than
+                        // pushing one Back would have to step through.
                         const firstNonDeleted = files.find(f => !f.deleted);
-                        if (firstNonDeleted) selectFile(firstNonDeleted.path);
+                        if (firstNonDeleted) selectFile(firstNonDeleted.path, { push: false });
                     } else if (activeFile) {
-                        const file = files.find(f => f.path === activeFile);
-                        if (file && !file.deleted) {
+                        const file = files.find(f => pathsEqual(f.path, activeFile));
+                        if (file && file.untracked !== true && ephemeral && pathsEqual(ephemeral.path, activeFile)) {
+                            // The untracked file on screen just joined the
+                            // watch list (Track, or a folder picked it up).
+                            ephemeral = null;
+                            selectFile(file.path, { push: false });
+                        } else if (file && !file.deleted && !contentOverride) {
                             // Metadata-only broadcast (another file was added,
                             // activated, ...) — served from cache, and
                             // keepScroll stops it jumping to the top.
@@ -1011,20 +1325,13 @@
 
                     if (data.path === activeFile) {
                         activeFile = null;
-                        syncUrl(null);
+                        ephemeral = null;
+                        syncUrl(null, false);
                         const remaining = files.filter(f => !f.deleted);
                         if (remaining.length > 0) {
-                            selectFile(remaining[0].path);
+                            selectFile(remaining[0].path, { push: false });
                         } else {
-                            content.innerHTML = `
-                                <div class="welcome">
-                                    <h1>LiveMD</h1>
-                                    <p>Add a markdown file to get started:</p>
-                                    <pre><code>livemd add README.md</code></pre>
-                                </div>
-                            `;
-                            document.title = 'LiveMD';
-                            updateContentHeader(null);
+                            showWelcome();
                         }
                     }
                     break;
