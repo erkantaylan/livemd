@@ -112,3 +112,31 @@ func TestRenderMarkdownRewritesLinks(t *testing.T) {
 		t.Errorf("raw view rewrote a link:\n%s", raw)
 	}
 }
+
+// viewKind drives the layout, so it has to agree with RenderMode's dispatch:
+// anything it calls a document gets the narrow reading column.
+func TestViewKind(t *testing.T) {
+	cases := []struct {
+		path string
+		mode renderMode
+		want string
+	}{
+		{"notes.md", modeAuto, "document"},
+		{"notes.markdown", modeAuto, "document"},
+		{"notes.md", modeRaw, "source"}, // Raw is the source, not prose
+		{"main.go", modeAuto, "source"},
+		{"page.html", modeAuto, "source"},
+		{"data.csv", modeAuto, "table"},
+		{"data.tsv", modeAuto, "table"},
+		{"data.csv", modeRaw, "source"},
+		{"diagram.png", modeAuto, "media"},
+		{"paper.pdf", modeAuto, "media"},
+		{"clip.mp4", modeAuto, "media"},
+		{"song.mp3", modeRaw, "media"}, // media has no source view to fall back on
+	}
+	for _, tc := range cases {
+		if got := viewKind(tc.path, tc.mode); got != tc.want {
+			t.Errorf("viewKind(%q, %v) = %q, want %q", tc.path, tc.mode, got, tc.want)
+		}
+	}
+}

@@ -144,4 +144,5 @@ livemd add docs/demo.md
 - [goldmark](https://github.com/yuin/goldmark) for markdown parsing
 - [chroma](https://github.com/alecthomas/chroma) for syntax highlighting
 - [fsnotify](https://github.com/fsnotify/fsnotify) for file watching
+- No CSS framework - the interface is styled from `static/style.css`; see [design.md](design.md)
 - [gorilla/websocket](https://github.com/gorilla/websocket) for live updates

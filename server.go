@@ -740,7 +740,11 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"html": html, "path": actual})
+	json.NewEncoder(w).Encode(map[string]string{
+		"html": html,
+		"path": actual,
+		"view": viewKind(actual, mode),
+	})
 }
 
 func (s *Server) handleAddFile(w http.ResponseWriter, r *http.Request) {

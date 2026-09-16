@@ -4,7 +4,6 @@
 
 | Library | Version | License | URL |
 |---------|---------|---------|-----|
-| Bulma | 1.0.4 | MIT | https://bulma.io |
 | Devicon | latest | MIT | https://devicon.dev |
 
 ## Backend (Go modules)

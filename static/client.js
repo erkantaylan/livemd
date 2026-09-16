@@ -217,6 +217,7 @@
 
     function showOpenError(path, msg) {
         contentOverride = true;
+        setViewKind('document');
         content.innerHTML = `
             <div class="welcome">
                 <h1 class="has-text-danger">Cannot open file</h1>
@@ -229,6 +230,7 @@
 
     function showWelcome() {
         contentOverride = true;
+        setViewKind('document');
         content.innerHTML = `
             <div class="welcome">
                 <h1>LiveMD</h1>
@@ -245,13 +247,14 @@
     // button rather than happening behind the reader's back.
     function showOutsideRoots(path) {
         contentOverride = true;
+        setViewKind('document');
         content.innerHTML = `
             <div class="welcome">
                 <h1 class="has-text-danger">Outside the tracked paths</h1>
                 <p><code>${escapeHtml(path)}</code></p>
                 <p>Links open files inside a folder you follow, or beside a file you track.
                    This one is somewhere else.</p>
-                <p><button class="button is-small" id="track-anyway-btn">Track this file</button></p>
+                <p><button class="button" id="track-anyway-btn">Track this file</button></p>
             </div>
         `;
         updateContentHeader(null);
@@ -313,7 +316,7 @@
                 const actual = d.path || path;
                 // The render is already in hand — seed the cache so selectFile
                 // shows it without a second round trip.
-                cachePut(cacheKey(actual, mode), d.html);
+                cachePut(cacheKey(actual, mode), { html: d.html, view: d.view });
                 ephemeral = { path: actual, name: baseName(actual), untracked: true };
                 selectFile(actual, opts);
             })
@@ -442,9 +445,9 @@
     });
 
     // Tab switching
-    document.querySelectorAll('.tabs li').forEach(li => {
+    document.querySelectorAll('.sidebar-tabs li').forEach(li => {
         li.addEventListener('click', () => {
-            document.querySelectorAll('.tabs li').forEach(l => l.classList.remove('is-active'));
+            document.querySelectorAll('.sidebar-tabs li').forEach(l => l.classList.remove('is-active'));
             document.querySelectorAll('.tab-content').forEach(t => t.classList.add('is-hidden'));
             li.classList.add('is-active');
             document.getElementById(li.dataset.tab + '-tab').classList.remove('is-hidden');
@@ -623,6 +626,36 @@
         return commonParts.join('/');
     }
 
+    // compactChains folds a folder holding nothing but one subfolder into a
+    // single row — "skills/aspire/references" instead of three levels of
+    // corridor. Real trees are mostly corridor, and each level costs both a row
+    // and 12px of indent to say nothing.
+    //
+    // A followed folder is never folded away: it owns a Refresh button and has
+    // to keep a row of its own.
+    function compactChains(node) {
+        for (const name of Object.keys(node.children)) {
+            const original = node.children[name];
+            compactChains(original); // depth first: fold the tail before the head
+            let label = original.name;
+            let deepest = original;
+            while (deepest.files.length === 0 &&
+                   Object.keys(deepest.children).length === 1 &&
+                   !findFollowedFolder(deepest.path)) {
+                const only = deepest.children[Object.keys(deepest.children)[0]];
+                label += '/' + only.name;
+                deepest = only;
+            }
+            if (deepest !== original) {
+                delete node.children[name];
+                // The row stands for the deepest folder — that is the path its
+                // collapse state, Refresh and Remove all act on.
+                node.children[label] = Object.assign({}, deepest, { name: label });
+            }
+        }
+        return node;
+    }
+
     function buildTree(files, commonPrefix) {
         const tree = { children: {}, files: [] };
         const prefixLen = commonPrefix ? commonPrefix.length + 1 : 0;
@@ -676,6 +709,23 @@
         return out;
     }
 
+    // folderLabel dims the corridor part of a compacted chain, so the eye lands
+    // on the folder the row actually stands for.
+    // folderLabel dims the corridor part of a compacted chain and, when the row
+    // is too narrow, sacrifices the corridor rather than the leaf: the ellipsis
+    // belongs in "…/planets/sharp-skills", never in "Desktop/projects/alte…",
+    // which hides the one segment that identifies the row.
+    function folderLabel(name) {
+        const parts = name.split('/');
+        const leaf = parts.pop();
+        // <bdi> isolates the path text so the rtl trick in the stylesheet moves
+        // only the ellipsis — without it ".claude/skills" reorders to
+        // "/claude.skills", because "." and "/" take their direction from
+        // whatever surrounds them.
+        const lead = parts.length ? `<span class="path-lead"><bdi>${escapeHtml(parts.join('/'))}/</bdi></span>` : '';
+        return lead + `<span class="path-leaf">${escapeHtml(leaf)}</span>`;
+    }
+
     function renderTreeNode(node, depth = 0) {
         let html = '';
         const indent = depth * 12;
@@ -696,7 +746,7 @@
                 <div class="tree-folder ${isCollapsed ? 'collapsed' : ''}" data-path="${escapeHtml(folder.path)}" style="padding-left: ${indent}px">
                     <span class="folder-toggle" data-path="${escapeHtml(folder.path)}">${chevron}</span>
                     <span class="folder-icon">${folderSvg}</span>
-                    <span class="folder-name">${escapeHtml(folderName)}</span>
+                    <span class="folder-name" title="${escapeHtml(folder.path)}">${folderLabel(folderName)}</span>
                     ${refreshControl}
                     <button class="folder-remove" data-path="${escapeHtml(folder.path)}" title="Remove folder from watch">&#10005;</button>
                 </div>
@@ -720,11 +770,9 @@
 
             html += `
                 <div class="file-item tree-file ${file.path === activeFile ? 'active' : ''} ${stateClass} ${deletedClass}" data-path="${escapeHtml(file.path)}" style="padding-left: ${indent}px">
-                    <button class="file-remove" data-path="${escapeHtml(file.path)}" title="Remove from watch">&#10005;</button>
                     <span class="file-icon">${iconHtml}</span>
-                    <div class="file-info">
-                        <div class="file-name" title="${escapeHtml(file.path)}">${isDeleted ? '<span class="has-text-danger">' + escapeHtml(file.displayName) + '</span>' : escapeHtml(file.displayName)}</div>
-                    </div>
+                    <span class="file-name" title="${escapeHtml(file.path)}">${escapeHtml(file.displayName)}</span>
+                    <button class="file-remove" data-path="${escapeHtml(file.path)}" title="Remove from watch">&#10005;</button>
                 </div>
             `;
         }
@@ -769,12 +817,12 @@
 
         const paths = files.map(f => f.path);
         const commonPrefix = findCommonPrefix(paths);
-        const tree = buildTree(files, commonPrefix);
+        const tree = compactChains(buildTree(files, commonPrefix));
 
         let html = '';
         if (commonPrefix) {
             const rootName = commonPrefix.split('/').pop() || commonPrefix;
-            html += `<div class="tree-root" title="${escapeHtml(commonPrefix)}">${escapeHtml(rootName)}${folderRefreshControl(commonPrefix)}</div>`;
+            html += `<div class="tree-root" title="${escapeHtml(commonPrefix)}"><span class="root-name">${escapeHtml(rootName)}</span>${folderRefreshControl(commonPrefix)}</div>`;
         }
 
         // A followed folder that contributes no files gets no row from the tree
@@ -786,6 +834,7 @@
             const name = folder.path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || folder.path;
             html += `
                 <div class="tree-folder is-empty" title="${escapeHtml(folder.path)}">
+                    <span class="folder-toggle"></span>
                     <span class="folder-icon"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M1.5 2h4l1 1h8a.5.5 0 0 1 .5.5v10a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5z" fill="#c09553"/></svg></span>
                     <span class="folder-name">${escapeHtml(name)}</span>
                     ${folderRefreshControl(folder.path)}
@@ -974,14 +1023,14 @@
     // metadata, so the daemon never holds a render in memory and a 40MB file
     // costs nothing until you actually open it. ---
     const CACHE_LIMIT = 10;
-    const contentCache = new Map(); // "path|mode" -> html, insertion-ordered
+    const contentCache = new Map(); // "path|mode" -> {html, view}, insertion-ordered
 
     function cacheKey(path, mode) {
         return path + '|' + mode;
     }
 
-    function cachePut(key, html) {
-        contentCache.set(key, html);
+    function cachePut(key, entry) {
+        contentCache.set(key, entry);
         while (contentCache.size > CACHE_LIMIT) {
             contentCache.delete(contentCache.keys().next().value);
         }
@@ -1001,9 +1050,10 @@
         const key = cacheKey(file.path, mode);
         const stale = () => file.path !== activeFile || effectiveMode(file.path) !== mode;
 
-        const apply = html => {
+        const apply = (html, view) => {
             if (stale()) return;
             const scrollY = keepScroll ? content.scrollTop : 0;
+            setViewKind(view);
             content.innerHTML = html;
             if (mode !== 'raw') enhanceContent(content);
             content.scrollTop = scrollY;
@@ -1013,14 +1063,17 @@
         };
 
         if (contentCache.has(key)) {
-            apply(contentCache.get(key));
+            const hit = contentCache.get(key);
+            apply(hit.html, hit.view);
             return;
         }
 
         // Only show a placeholder if the fetch is slow enough to notice,
         // so small files don't flash.
         const spinner = setTimeout(() => {
-            if (!stale()) content.innerHTML = '<div class="loading-state">Loading ' + escapeHtml(file.name) + '…</div>';
+            if (stale()) return;
+            setViewKind('document');
+            content.innerHTML = '<div class="loading-state">Loading ' + escapeHtml(file.name) + '…</div>';
         }, 150);
 
         const url = '/api/render?path=' + encodeURIComponent(file.path) + (mode === 'raw' ? '&mode=raw' : '');
@@ -1031,14 +1084,21 @@
             })
             .then(d => {
                 clearTimeout(spinner);
-                cachePut(key, d.html);
-                apply(d.html);
+                cachePut(key, { html: d.html, view: d.view });
+                apply(d.html, d.view);
             })
             .catch(err => {
                 clearTimeout(spinner);
                 console.error('Failed to render:', err);
                 if (!stale()) showOpenError(file.path, 'Could not render this file.');
             });
+    }
+
+    // setViewKind tells the stylesheet what it is laying out. Only "document"
+    // gets the centred reading column; source dumps, tables and media take the
+    // whole pane, because narrowing them destroys them.
+    function setViewKind(view) {
+        content.className = 'content view-' + (view || 'document');
     }
 
     // effectiveMode collapses the view choice to what actually gets fetched:
@@ -1195,6 +1255,7 @@
         if (isHtmlFile(file.path) && viewMode(file.path) === 'preview') {
             const bust = file.lastChange ? new Date(file.lastChange).getTime() : 0;
             const src = '/raw?path=' + encodeURIComponent(file.path) + '&t=' + bust;
+            setViewKind('media');
             content.innerHTML = '<div class="html-preview"><iframe class="html-preview-frame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" src="' + escapeHtml(src) + '"></iframe></div>';
             updateViewToggle(file);
             updateSubheader(file);
@@ -1300,7 +1361,7 @@
 
         ws.onopen = function() {
             status.textContent = 'live';
-            status.className = 'tag is-success is-light';
+            status.className = 'tag is-success';
             reconnectDelay = 1000;
             // Check version on connect
             checkForUpdates();
@@ -1337,6 +1398,8 @@
                             renderContent(file, true);
                             updateContentHeader(file);
                         } else if (file && file.deleted) {
+                            contentOverride = true;
+                            setViewKind('document');
                             content.innerHTML = `
                                 <div class="welcome">
                                     <h1 class="has-text-danger">File Deleted</h1>
@@ -1402,7 +1465,7 @@
 
         ws.onclose = function() {
             status.textContent = 'disconnected';
-            status.className = 'tag is-danger is-light';
+            status.className = 'tag is-danger';
 
             setTimeout(function() {
                 reconnectDelay = Math.min(reconnectDelay * 1.5, maxReconnectDelay);

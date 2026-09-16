@@ -232,6 +232,23 @@ func (r *Renderer) Render(path string) (string, error) {
 	return r.RenderMode(path, modeAuto)
 }
 
+// viewKind names the shape of a render so the client can lay it out. Only prose
+// wants a reading column; a source dump, a table or an embedded PDF is ruined
+// by one, and mirrors RenderMode's dispatch so the two cannot disagree.
+func viewKind(path string, mode renderMode) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	if _, ok := renderMedia(path, ext); ok {
+		return "media"
+	}
+	if mode == modeAuto && (ext == ".csv" || ext == ".tsv") {
+		return "table"
+	}
+	if mode == modeAuto && isMarkdown(path) {
+		return "document"
+	}
+	return "source"
+}
+
 // RenderMode renders a file in the requested view. Files above maxFileSize get
 // a placeholder instead of content — the guard lives here as well as at add
 // time because a watched file can grow past the limit while being tailed.
@@ -277,15 +294,19 @@ func (r *Renderer) RenderMode(path string, mode renderMode) (string, error) {
 
 // renderMarkdown converts a document, passing its own directory down to
 // linkTransformer so relative links and images resolve the way they do on disk.
+// Front matter is lifted out first and rendered as a metadata block — goldmark
+// would otherwise set it as prose, and its second line as a heading.
 func (r *Renderer) renderMarkdown(path string, content []byte) (string, error) {
+	frontMatter, body := splitFrontMatter(content)
+
 	pc := parser.NewContext()
 	pc.Set(baseDirKey, filepath.Dir(path))
 
 	var buf bytes.Buffer
-	if err := r.md.Convert(content, &buf, parser.WithContext(pc)); err != nil {
+	if err := r.md.Convert(body, &buf, parser.WithContext(pc)); err != nil {
 		return "", err
 	}
-	return buf.String(), nil
+	return renderFrontMatter(frontMatter) + buf.String(), nil
 }
 
 func (r *Renderer) renderCode(path string, content []byte, lineNumbers bool) (string, error) {
@@ -344,7 +365,7 @@ func renderPlainText(code string, total int) string {
 	escaped = strings.ReplaceAll(escaped, "<", "&lt;")
 	escaped = strings.ReplaceAll(escaped, ">", "&gt;")
 
-	return `<pre style="background: #f6f8fa; padding: 16px; overflow-x: auto; border-radius: 6px; font-family: monospace; font-size: 14px; line-height: 1.45;"><code>` + escaped + `</code></pre>` +
+	return `<pre style="background: #fdfcf8; padding: 16px; overflow-x: auto; font-family: monospace; font-size: 13px; line-height: 1.5;"><code>` + escaped + `</code></pre>` +
 		lineCountMarker(total)
 }
 
@@ -366,7 +387,7 @@ func renderMedia(path, ext string) (string, bool) {
 	switch ext {
 	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".avif", ".svg":
 		return fmt.Sprintf(
-			`<div style="text-align:center;padding:16px;"><img src="%s" alt="%s" style="max-width:100%%;height:auto;border-radius:4px;"></div>`,
+			`<div class="media-figure" style="text-align:center;padding:16px;"><img src="%s" alt="%s" style="max-width:100%%;height:auto;border-radius:4px;"></div>`,
 			rawURL, name,
 		), true
 	case ".pdf":
@@ -376,12 +397,12 @@ func renderMedia(path, ext string) (string, bool) {
 		), true
 	case ".mp3", ".wav", ".ogg", ".oga", ".m4a", ".flac", ".aac", ".opus":
 		return fmt.Sprintf(
-			`<div style="padding:24px;"><div style="margin-bottom:12px;color:#444;font-weight:500;">%s</div><audio controls preload="metadata" style="width:100%%;"><source src="%s"></audio></div>`,
+			`<div class="media-figure" style="padding:24px;"><div style="margin-bottom:12px;color:#444;font-weight:500;">%s</div><audio controls preload="metadata" style="width:100%%;"><source src="%s"></audio></div>`,
 			name, rawURL,
 		), true
 	case ".mp4", ".webm", ".mov", ".mkv", ".m4v":
 		return fmt.Sprintf(
-			`<div style="padding:16px;text-align:center;"><video controls preload="metadata" style="max-width:100%%;max-height:calc(100vh - 160px);border-radius:4px;"><source src="%s"></video></div>`,
+			`<div class="media-figure" style="padding:16px;text-align:center;"><video controls preload="metadata" style="max-width:100%%;max-height:calc(100vh - 160px);border-radius:4px;"><source src="%s"></video></div>`,
 			rawURL,
 		), true
 	}
@@ -423,18 +444,18 @@ func renderTable(content []byte, tsv bool) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(`<div style="overflow:auto;max-height:calc(100vh - 120px);"><table style="border-collapse:collapse;font-family:monospace;font-size:13px;">`)
+	b.WriteString(`<div class="table-view" style="overflow:auto;max-height:calc(100vh - 120px);"><table style="border-collapse:collapse;font-family:monospace;font-size:13px;">`)
 	for i, row := range rows {
 		tag := "td"
 		bg := ""
 		if i == 0 {
 			tag = "th"
-			bg = "background:#f6f8fa;position:sticky;top:0;"
+			bg = "background:#e9e7e0;position:sticky;top:0;"
 		}
 		b.WriteString("<tr>")
 		for _, cell := range row {
 			fmt.Fprintf(&b,
-				`<%s style="border:1px solid #d0d7de;padding:6px 10px;text-align:left;%s">%s</%s>`,
+				`<%s style="border:1px solid #e2dfd6;padding:6px 10px;text-align:left;%s">%s</%s>`,
 				tag, bg, template.HTMLEscapeString(cell), tag,
 			)
 		}
@@ -444,7 +465,7 @@ func renderTable(content []byte, tsv bool) string {
 
 	if truncated {
 		fmt.Fprintf(&b,
-			`<div style="padding:12px;background:#fff3cd;color:#856404;border-radius:4px;margin-top:16px;">Showing first %d rows.</div>`,
+			`<div style="padding:12px 16px;background:#f5efdc;color:#8a6516;">Showing first %d rows.</div>`,
 			maxTableRows,
 		)
 	}
@@ -518,31 +539,31 @@ func getLexer(path string) chroma.Lexer {
 
 	// Special filenames
 	specialFiles := map[string]string{
-		"makefile":      "makefile",
-		"gnumakefile":   "makefile",
-		"dockerfile":    "docker",
-		".gitignore":    "gitignore",
-		".gitattributes": "gitignore",
-		".gitmodules":   "gitignore",
-		".dockerignore": "docker",
-		".editorconfig": "ini",
-		".env":          "bash",
-		".bashrc":       "bash",
-		".zshrc":        "bash",
-		".bash_profile": "bash",
-		"cmakelists.txt": "cmake",
-		"go.mod":        "gomod",
-		"go.sum":        "gomod",
-		"cargo.toml":    "toml",
-		"cargo.lock":    "toml",
-		"package.json":  "json",
-		"tsconfig.json": "json",
-		"composer.json": "json",
+		"makefile":         "makefile",
+		"gnumakefile":      "makefile",
+		"dockerfile":       "docker",
+		".gitignore":       "gitignore",
+		".gitattributes":   "gitignore",
+		".gitmodules":      "gitignore",
+		".dockerignore":    "docker",
+		".editorconfig":    "ini",
+		".env":             "bash",
+		".bashrc":          "bash",
+		".zshrc":           "bash",
+		".bash_profile":    "bash",
+		"cmakelists.txt":   "cmake",
+		"go.mod":           "gomod",
+		"go.sum":           "gomod",
+		"cargo.toml":       "toml",
+		"cargo.lock":       "toml",
+		"package.json":     "json",
+		"tsconfig.json":    "json",
+		"composer.json":    "json",
 		"requirements.txt": "text",
-		"gemfile":       "ruby",
-		"rakefile":      "ruby",
-		"vagrantfile":   "ruby",
-		"jenkinsfile":   "groovy",
+		"gemfile":          "ruby",
+		"rakefile":         "ruby",
+		"vagrantfile":      "ruby",
+		"jenkinsfile":      "groovy",
 	}
 
 	if lexerName, ok := specialFiles[name]; ok {
@@ -558,53 +579,53 @@ func getLexer(path string) chroma.Lexer {
 
 		// Common extension mappings
 		extMap := map[string]string{
-			"yml":  "yaml",
-			"js":   "javascript",
-			"ts":   "typescript",
-			"tsx":  "typescript",
-			"jsx":  "javascript",
-			"py":   "python",
-			"rb":   "ruby",
-			"rs":   "rust",
-			"sh":   "bash",
-			"zsh":  "bash",
-			"fish": "fish",
-			"ps1":  "powershell",
-			"psm1": "powershell",
-			"bat":  "batch",
-			"cmd":  "batch",
-			"h":    "c",
-			"hpp":  "cpp",
-			"cc":   "cpp",
-			"cxx":  "cpp",
-			"cs":   "csharp",
-			"fs":   "fsharp",
-			"kt":   "kotlin",
-			"kts":  "kotlin",
-			"scala": "scala",
-			"clj":  "clojure",
-			"ex":   "elixir",
-			"exs":  "elixir",
-			"erl":  "erlang",
-			"hrl":  "erlang",
-			"hs":   "haskell",
-			"ml":   "ocaml",
-			"mli":  "ocaml",
-			"pl":   "perl",
-			"pm":   "perl",
-			"r":    "r",
-			"lua":  "lua",
-			"vim":  "vim",
-			"el":   "emacs-lisp",
-			"lisp": "common-lisp",
-			"scm":  "scheme",
-			"rkt":  "racket",
-			"asm":  "nasm",
-			"s":    "gas",
-			"tf":   "terraform",
-			"hcl":  "hcl",
-			"nix":  "nix",
-			"vue":  "vue",
+			"yml":    "yaml",
+			"js":     "javascript",
+			"ts":     "typescript",
+			"tsx":    "typescript",
+			"jsx":    "javascript",
+			"py":     "python",
+			"rb":     "ruby",
+			"rs":     "rust",
+			"sh":     "bash",
+			"zsh":    "bash",
+			"fish":   "fish",
+			"ps1":    "powershell",
+			"psm1":   "powershell",
+			"bat":    "batch",
+			"cmd":    "batch",
+			"h":      "c",
+			"hpp":    "cpp",
+			"cc":     "cpp",
+			"cxx":    "cpp",
+			"cs":     "csharp",
+			"fs":     "fsharp",
+			"kt":     "kotlin",
+			"kts":    "kotlin",
+			"scala":  "scala",
+			"clj":    "clojure",
+			"ex":     "elixir",
+			"exs":    "elixir",
+			"erl":    "erlang",
+			"hrl":    "erlang",
+			"hs":     "haskell",
+			"ml":     "ocaml",
+			"mli":    "ocaml",
+			"pl":     "perl",
+			"pm":     "perl",
+			"r":      "r",
+			"lua":    "lua",
+			"vim":    "vim",
+			"el":     "emacs-lisp",
+			"lisp":   "common-lisp",
+			"scm":    "scheme",
+			"rkt":    "racket",
+			"asm":    "nasm",
+			"s":      "gas",
+			"tf":     "terraform",
+			"hcl":    "hcl",
+			"nix":    "nix",
+			"vue":    "vue",
 			"svelte": "svelte",
 		}
 
