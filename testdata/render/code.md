@@ -22,6 +22,13 @@ console.log(files.map(f => f.path));
 }
 ```
 
+```razor
+@foreach (var file in Model.Files)
+{
+    <li class="@(file.Active ? "on" : "off")">@file.Path</li>
+}
+```
+
 ```sql
 SELECT path, active FROM watched_files WHERE deleted = 0 ORDER BY path;
 ```

@@ -50,7 +50,7 @@ import (
 var defaultExtensions = []string{
 	".md", ".markdown",
 	".go",
-	".cs", ".razor",
+	".cs", ".cshtml", ".razor",
 	".js", ".ts", ".jsx", ".tsx",
 	".html", ".htm", ".css",
 	".json", ".yaml", ".yml", ".toml",

@@ -199,8 +199,9 @@ Handles long files:
 ```
 Determines which syntax highlighter to use:
 1. `getLexer()` attempts to find a language-specific lexer based on filename/extension
-2. Falls back to a generic lexer if none found
-3. `Coalesce()` optimizes the lexer by combining adjacent tokens of the same type
+2. Razor (`.cshtml`, `.razor`, ```` ```razor ```` fences) uses livemd's own lexer in `razor.go` — Chroma has none
+3. Falls back to a generic lexer if none found
+4. `Coalesce()` optimizes the lexer by combining adjacent tokens of the same type
 
 ```go
     // Get style and formatter

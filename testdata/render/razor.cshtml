@@ -1,0 +1,55 @@
+@page "/orders/{id:int}"
+@model OrdersModel
+@using System.Globalization
+@inject IStringLocalizer<OrdersModel> L
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+
+@* A Razor comment: <b>not markup</b>, @not.code *@
+@{
+    ViewData["Title"] = "Orders";
+    var total = Model.Orders.Sum(o => o.Amount); // running total
+    if (total > 1000) { total *= 0.9m; }
+}
+
+<h1 class="title">@ViewData["Title"]</h1>
+<p>Contact support@example.com or @@handle on the forum.</p>
+<a href="@Url.Page("./Details", new { id = Model.Id })">Details</a>
+<p>Total: @(total.ToString("C", CultureInfo.CurrentCulture))</p>
+<p>Updated @await Model.GetUpdatedAsync() by @User.Identity?.Name.</p>
+
+@if (Model.Orders.Count == 0)
+{
+    <p class="empty">No orders yet.</p>
+}
+else if (Model.IsAdmin)
+{
+    @:Admin view, @Model.Orders.Count orders
+}
+else
+{
+    <ul>
+        @foreach (var order in Model.Orders)
+        {
+            var css = order.Paid ? "paid" : "due";
+            <li class="@css">@order.Number &ndash; @order.Amount.ToString("C")</li>
+        }
+    </ul>
+}
+
+@try
+{
+    <text>Rendered @DateTime.Now.Year</text>
+}
+catch (Exception ex)
+{
+    <p>@ex.Message</p>
+}
+
+@section Scripts {
+    <script src="~/js/orders.js"></script>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private string Label(int n) => $"#{n:D5}";
+}
