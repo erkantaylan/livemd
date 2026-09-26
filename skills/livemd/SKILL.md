@@ -108,6 +108,10 @@ Windows): a `files` array and a `folders` array.
   and followed folders survive restarts (earlier versions dropped them from the
   file on every start).
 
+## Writing markdown
+
+Never hard-wrap prose in a `.md` file. Write each paragraph and each list item as one line and let the browser and the editor wrap it. Manual line breaks at 80 or 100 columns turn every later edit into a reflow of the whole paragraph, make diffs noisy, and read as ragged lines in raw view. Line breaks belong only where markdown needs them: between paragraphs, list items, table rows, headings, and inside code blocks.
+
 ## Notes and gotchas
 
 - Adding a file is cheap. The daemon registers it but only watches and renders on
