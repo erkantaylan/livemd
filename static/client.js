@@ -74,6 +74,8 @@
     const status = document.getElementById('status');
     const deletedBar = document.getElementById('deleted-bar');
     const removeDeletedBtn = document.getElementById('remove-deleted-btn');
+    const clearBar = document.getElementById('clear-bar');
+    const clearAllBtn = document.getElementById('clear-all-btn');
     const checkUpdateBtn = document.getElementById('check-update-btn');
     const updateBanner = document.getElementById('update-banner');
     const updateText = document.getElementById('update-text');
@@ -469,6 +471,28 @@
         });
     });
 
+    // Clear the whole watch list. It wipes every file and folder at once, so it
+    // arms on the first click and only fires on a second within a few seconds —
+    // the same "commit once" idea as the refresh note, not a blocking dialog.
+    let clearArmTimer = null;
+    function disarmClear() {
+        if (clearArmTimer) { clearTimeout(clearArmTimer); clearArmTimer = null; }
+        clearAllBtn.classList.remove('is-armed');
+        clearAllBtn.textContent = 'Clear all';
+    }
+    clearAllBtn.addEventListener('click', () => {
+        if (clearAllBtn.classList.contains('is-armed')) {
+            disarmClear();
+            fetch('/api/clear', { method: 'POST' }).catch(err => {
+                console.error('Failed to clear watch list:', err);
+            });
+            return;
+        }
+        clearAllBtn.classList.add('is-armed');
+        clearAllBtn.textContent = 'Clear all?';
+        clearArmTimer = setTimeout(disarmClear, 3000);
+    });
+
     // Check for updates button
     checkUpdateBtn.addEventListener('click', () => {
         checkUpdateBtn.textContent = 'Checking...';
@@ -845,6 +869,15 @@
         }
     }
 
+    // The clear-all control only appears when there is something to clear, and
+    // resets itself the moment the list empties out (its own click, or the last
+    // file removed some other way) so it never sits armed over an empty tree.
+    function updateClearBar() {
+        const hasAny = files.length > 0 || folders.length > 0;
+        clearBar.classList.toggle('is-hidden', !hasAny);
+        if (!hasAny) disarmClear();
+    }
+
     function renderFileList() {
         if (files.length === 0 && folders.length === 0) {
             fileList.innerHTML = `
@@ -854,6 +887,7 @@
                 </div>
             `;
             updateDeletedBar();
+            updateClearBar();
             return;
         }
 
@@ -873,6 +907,7 @@
 
         fileList.innerHTML = html;
         updateDeletedBar();
+        updateClearBar();
 
         fileList.querySelectorAll('.tree-file').forEach(el => {
             el.addEventListener('click', (e) => {
@@ -928,7 +963,14 @@
             body: JSON.stringify({ path: path }),
         })
             .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
-            .then(d => setRefreshNote(path, d.added ? '+' + d.added : 'nothing new', false))
+            .then(d => {
+                // A pull adds and removes: show both sides when either moved,
+                // e.g. "+2 −1", so a prune is not silent.
+                const parts = [];
+                if (d.added) parts.push('+' + d.added);
+                if (d.removed) parts.push('−' + d.removed);
+                setRefreshNote(path, parts.length ? parts.join(' ') : 'nothing new', false);
+            })
             .catch(err => {
                 console.error('Failed to refresh folder:', err);
                 setRefreshNote(path, 'failed', false);

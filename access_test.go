@@ -233,7 +233,7 @@ func TestRefreshFolderPicksUpNewFiles(t *testing.T) {
 		t.Fatalf("before refresh: %d files, want the new file still unseen", got)
 	}
 
-	added, err := h.RefreshFolder(docs)
+	added, _, err := h.RefreshFolder(docs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,11 +245,11 @@ func TestRefreshFolderPicksUpNewFiles(t *testing.T) {
 	}
 
 	// Refreshing again is a no-op: already-registered files aren't counted.
-	if added, err := h.RefreshFolder(docs); err != nil || added != 0 {
+	if added, _, err := h.RefreshFolder(docs); err != nil || added != 0 {
 		t.Errorf("second refresh added %d (err %v), want 0", added, err)
 	}
 
-	if _, err := h.RefreshFolder(filepath.Join(root, "not-followed")); err == nil {
+	if _, _, err := h.RefreshFolder(filepath.Join(root, "not-followed")); err == nil {
 		t.Error("refreshing an unfollowed folder should fail")
 	}
 }

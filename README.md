@@ -85,6 +85,9 @@ livemd list
 # Remove a file
 livemd remove README.md
 
+# Remove everything being watched (all files and followed folders)
+livemd clear
+
 # Stop the server
 livemd stop
 ```
@@ -147,7 +150,7 @@ livemd add docs/demo.md
 ## Features
 
 - **Persistent server** - Start once, add files anytime; state survives restart
-- **Followed folders** - `livemd add ./dir -r` registers everything in a directory; gitignored files are skipped automatically when the folder is in a git repo. A Refresh button on each followed folder picks up files added since
+- **Followed folders** - `livemd add ./dir -r` registers everything in a directory; gitignored files are skipped automatically when the folder is in a git repo. A Refresh button on each followed folder reconciles it with disk after a `git pull` or edit — picking up files added since and dropping ones that were deleted or renamed away
 - **Tree view sidebar** - Collapsible folder structure with a Refresh button on followed folders
 - **Lazy watching** - Files are registered but only actively watched when selected, and content is rendered on demand: the daemon holds no HTML, so tracking a 40 MB file costs nothing until you open it
 - **Many viewers** - Markdown (GFM + mermaid + KaTeX math), 50+ syntax-highlighted code languages, images, PDFs, audio, video, CSV/TSV as tables

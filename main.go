@@ -16,6 +16,7 @@
 //   - start: Launch the server on specified port (default 3000)
 //   - add: Add file(s) to watch list, supports recursive directory scanning
 //   - remove: Stop watching a specific file
+//   - clear: Remove every watched file and followed folder
 //   - list: Display all currently watched files
 //   - stop: Gracefully shutdown the server
 //
@@ -75,6 +76,7 @@ Usage:
   livemd add <file.md>                 Add file to watch
   livemd add <folder> -r               Add folder recursively
   livemd remove <file.md>              Remove file from watch
+  livemd clear                         Remove all watched files and folders
   livemd list                          List watched files
   livemd stop                          Stop the server
   livemd port                          Show current port
@@ -115,6 +117,8 @@ Examples:
 		cmdAdd()
 	case "remove":
 		cmdRemove()
+	case "clear":
+		cmdClear()
 	case "list":
 		cmdList()
 	case "stop":
@@ -502,6 +506,51 @@ func cmdRemove() {
 	}
 
 	fmt.Printf("Stopped watching: %s\n", filepath.Base(absPath))
+}
+
+// cmdClear handles the "livemd clear" command.
+// It empties the server's whole watch list — every tracked file and every
+// followed folder — via POST /api/clear, then reports what was removed.
+func cmdClear() {
+	port, err := readLockFile()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "LiveMD server not running.")
+		os.Exit(1)
+	}
+
+	resp, err := http.Post(fmt.Sprintf("http://localhost:%d/api/clear", port), "application/json", nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		fmt.Fprintf(os.Stderr, "Error: %s\n", string(respBody))
+		os.Exit(1)
+	}
+
+	var result struct {
+		Files   int `json:"files"`
+		Folders int `json:"folders"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+
+	if result.Files == 0 && result.Folders == 0 {
+		fmt.Println("Nothing to clear.")
+		return
+	}
+	fmt.Printf("Cleared %s and %s.\n", plural(result.Files, "file"), plural(result.Folders, "folder"))
+}
+
+// plural renders a count with its noun, adding an "s" for anything but one:
+// "1 file", "0 folders", "3 files".
+func plural(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("1 %s", noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 // cmdList handles the "livemd list" command.

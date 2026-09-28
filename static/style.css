@@ -331,6 +331,38 @@ body.sidebar-resizing {
     background: var(--danger-weak);
 }
 
+/* Clear-everything lives at the foot of the list, out of the reading flow. A
+   destructive action that clears the whole watch list should not sit where a
+   glance lands or a click strays — see design.md, "hiding an action is for the
+   ones you regret". */
+.clear-bar {
+    padding: var(--s-2) var(--s-3);
+    border-top: 1px solid var(--rule);
+    display: flex;
+    justify-content: flex-end;
+}
+
+/* Quiet until you commit to it: a clear-all button drawn like a warning invites
+   the very click it should discourage. */
+.clear-all-btn {
+    background: transparent;
+    border-color: transparent;
+    color: var(--ink-faint);
+}
+
+.clear-all-btn:hover {
+    background: var(--sunken);
+    color: var(--ink-muted);
+}
+
+/* Armed by the first click: the second one commits, so now it wears --danger. */
+.clear-all-btn.is-armed,
+.clear-all-btn.is-armed:hover {
+    background: var(--danger-weak);
+    border-color: var(--danger-rule);
+    color: var(--danger);
+}
+
 /* ========================================================== File tree ==== */
 
 .tree-root {

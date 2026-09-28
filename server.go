@@ -324,14 +324,21 @@ func (h *Hub) UnfollowFolder(path string) error {
 	return nil
 }
 
-// RefreshFolder walks a followed folder again and registers whatever has
-// appeared since the last look. Folders are scanned when asked rather than
-// watched: a one-shot walk answers the same question a filesystem event would,
-// at the moment the reader actually wants to know.
+// RefreshFolder walks a followed folder again and reconciles the watch list
+// with what is on disk. Folders are pulled rather than watched: a one-shot walk
+// answers the same question a filesystem event would, at the moment the reader
+// actually wants to know.
 //
-// Returns the number of newly registered files. Files already in the watch list
-// come back as "already registered" errors from AddFile and are not counted.
-func (h *Hub) RefreshFolder(path string) (int, error) {
+// A refresh both adds and removes. A git pull is the case that made this
+// necessary: it does not only add files, it deletes and renames them too, and a
+// folder-discovered file is registered inactive, so no watcher ever marks a
+// pulled-away file as gone. Refresh therefore also drops files under the folder
+// that no longer exist on disk — see pruneMissingUnder.
+//
+// Returns the number of newly registered files and the number pruned. Files
+// already in the watch list come back as "already registered" errors from
+// AddFile and are not counted as added.
+func (h *Hub) RefreshFolder(path string) (added, removed int, err error) {
 	h.mu.RLock()
 	var folder *WatchedFolder
 	for existing, f := range h.folders {
@@ -342,30 +349,69 @@ func (h *Hub) RefreshFolder(path string) (int, error) {
 	}
 	h.mu.RUnlock()
 	if folder == nil {
-		return 0, fmt.Errorf("folder not followed: %s", path)
+		return 0, 0, fmt.Errorf("folder not followed: %s", path)
 	}
 
 	files, err := walkFolder(folder)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
-	added := 0
 	for _, f := range files {
 		if err := h.AddFile(f); err == nil {
 			added++
 		}
 	}
 
+	removed = h.pruneMissingUnder(folder.Path)
+
 	name := filepath.Base(folder.Path)
-	if added > 0 {
+	switch {
+	case added > 0 && removed > 0:
+		h.logger.Info(fmt.Sprintf("Refreshed %s: %d new, %d gone", name, added, removed))
+	case added > 0:
 		h.logger.Info(fmt.Sprintf("Refreshed %s: %d new file(s)", name, added))
-	} else {
+	case removed > 0:
+		h.logger.Info(fmt.Sprintf("Refreshed %s: %d file(s) gone", name, removed))
+	default:
 		h.logger.Info(fmt.Sprintf("Refreshed %s: nothing new", name))
 	}
 	h.broadcastFileList()
 	h.persistState()
-	return added, nil
+	return added, removed, nil
+}
+
+// pruneMissingUnder removes tracked files under folderPath whose path no longer
+// exists on disk. It is how a refresh notices files a git pull deleted or
+// renamed away: those files are gone from the working tree but were registered
+// inactive, so no watcher ever marked them Deleted. A file that still exists is
+// kept even when the fresh walk no longer lists it (one the user tracked by
+// hand, or one newly gitignored) — refresh reconciles the folder with the disk,
+// it does not second-guess what is on it. Only os.IsNotExist prunes; any other
+// stat error keeps the file. It does not broadcast or persist; the caller does
+// that once. Returns the number removed.
+func (h *Hub) pruneMissingUnder(folderPath string) int {
+	prefix := filepath.Clean(folderPath) + string(filepath.Separator)
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var gone []string
+	for path := range h.files {
+		if !strings.HasPrefix(path, prefix) {
+			continue
+		}
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			gone = append(gone, path)
+		}
+	}
+	for _, path := range gone {
+		if w, exists := h.watchers[path]; exists {
+			w.Close()
+			delete(h.watchers, path)
+		}
+		delete(h.files, path)
+	}
+	return len(gone)
 }
 
 func (h *Hub) AddFile(path string) error {
@@ -675,6 +721,28 @@ func (h *Hub) RemoveDeletedFiles() int {
 		h.persistState()
 	}
 	return len(toRemove)
+}
+
+// RemoveAll drops every tracked file and unfollows every folder — a full reset
+// of the watch list. Returns the number of files and folders that were removed.
+// Persists unconditionally: unlike RemoveFolder, "clear when already empty" must
+// still leave an empty state file, not skip the write.
+func (h *Hub) RemoveAll() (files, folders int) {
+	h.mu.Lock()
+	files = len(h.files)
+	folders = len(h.folders)
+	for _, w := range h.watchers {
+		w.Close()
+	}
+	h.watchers = make(map[string]*Watcher)
+	h.files = make(map[string]*WatchedFile)
+	h.folders = make(map[string]*WatchedFolder)
+	h.mu.Unlock()
+
+	h.logger.Info(fmt.Sprintf("Cleared watch list: %d file(s), %d folder(s)", files, folders))
+	h.broadcastFileList()
+	h.persistState()
+	return files, folders
 }
 
 func (h *Hub) GetFiles() []WatchedFile {
@@ -1009,13 +1077,13 @@ func (s *Server) routes() *http.ServeMux {
 			http.Error(w, "Invalid request", http.StatusBadRequest)
 			return
 		}
-		added, err := s.hub.RefreshFolder(req.Path)
+		added, removed, err := s.hub.RefreshFolder(req.Path)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]int{"added": added})
+		json.NewEncoder(w).Encode(map[string]int{"added": added, "removed": removed})
 	})
 	mux.HandleFunc("/api/files/remove-folder", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -1039,6 +1107,16 @@ func (s *Server) routes() *http.ServeMux {
 		count := s.hub.RemoveDeletedFiles()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]int{"removed": count})
+	})
+	// Clear the whole watch list: every tracked file and every followed folder.
+	mux.HandleFunc("/api/clear", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		files, folders := s.hub.RemoveAll()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int{"files": files, "folders": folders})
 	})
 	mux.HandleFunc("/api/render", s.handleRender)
 	mux.HandleFunc("/api/logs", s.handleLogs)
