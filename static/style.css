@@ -316,6 +316,34 @@ body.sidebar-resizing {
     border-bottom: 1px solid var(--rule);
 }
 
+/* The match count sits inside the field's right edge; the input reserves room
+   for it so a long query never runs underneath. */
+.filter-bar {
+    position: relative;
+    padding: var(--s-2);
+    border-bottom: 1px solid var(--rule);
+}
+
+.filter-bar .input {
+    padding-right: 72px;
+}
+
+.filter-count {
+    position: absolute;
+    right: calc(var(--s-2) + var(--s-2));
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 11px;
+    color: var(--ink-faint);
+    pointer-events: none;
+}
+
+.filter-hit {
+    background: var(--accent-weak);
+    color: inherit;
+    border-radius: 2px;
+}
+
 .add-path-error {
     padding: var(--s-2) var(--s-3);
     font-size: 11px;
@@ -487,6 +515,16 @@ body.sidebar-resizing {
 .file-item.active {
     background: var(--selected);
     box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* The row Enter would open while filtering. A hairline, not a fill, so it
+   reads as "here" without competing with the selected file's sand. */
+.file-item.is-cursor {
+    box-shadow: inset 0 0 0 1px var(--rule-strong);
+}
+
+.file-item.active.is-cursor {
+    box-shadow: inset 2px 0 0 var(--accent), inset 0 0 0 1px var(--rule-strong);
 }
 
 .file-item.active .file-name {

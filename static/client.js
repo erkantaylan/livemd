@@ -68,6 +68,8 @@
     }
 
     const fileList = document.getElementById('file-list');
+    const filterInput = document.getElementById('filter-input');
+    const filterCount = document.getElementById('filter-count');
     const logList = document.getElementById('log-list');
     const changelogList = document.getElementById('changelog-list');
     const content = document.getElementById('content');
@@ -115,6 +117,11 @@
         return folders.find(f => f.path.toLowerCase() === path.toLowerCase());
     }
     let collapsedFolders = new Set();
+    // The sidebar filter: whitespace-separated terms, all of which must appear
+    // in a file's path below the tree root. filterCursor indexes the matching
+    // rows in tree order — the one Enter opens.
+    let filterTerms = [];
+    let filterCursor = 0;
     // Outcome of the most recent folder refresh: { path, text, busy, timer }.
     let refreshNote = null;
     let changelogLoaded = false;
@@ -731,7 +738,8 @@
         // Refresh and remove buttons stay reachable. Built from files alone, a
         // followed folder whose files were all removed vanished from the
         // sidebar while livemd went on following it.
-        for (const folder of folders) {
+        // While filtering, a folder only shows as the parent of a match.
+        for (const folder of filterTerms.length ? [] : folders) {
             const relativePath = folder.path.slice(prefixLen);
             if (!relativePath) continue;
 
@@ -800,7 +808,9 @@
 
         for (const folderName of folderNames) {
             const folder = node.children[folderName];
-            const isCollapsed = collapsedFolders.has(folder.path);
+            // A match inside a collapsed folder is still a match: filtering
+            // opens everything, and leaves the collapse state for afterwards.
+            const isCollapsed = !filterTerms.length && collapsedFolders.has(folder.path);
             const chevron = isCollapsed ? '&#9654;' : '&#9660;';
             const folderSvg = isCollapsed
                 ? '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M1.5 2h4l1 1h8a.5.5 0 0 1 .5.5v10a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5z" fill="#c09553"/></svg>'
@@ -837,7 +847,7 @@
             html += `
                 <div class="file-item tree-file ${file.path === activeFile ? 'active' : ''} ${stateClass} ${deletedClass}" data-path="${escapeHtml(file.path)}" style="padding-left: ${indent}px">
                     <span class="file-icon">${iconHtml}</span>
-                    <span class="file-name" title="${escapeHtml(file.path)}">${escapeHtml(file.displayName)}</span>
+                    <span class="file-name" title="${escapeHtml(file.path)}">${highlightTerms(file.displayName)}</span>
                     <button class="file-remove" data-path="${escapeHtml(file.path)}" title="Remove from watch">&#10005;</button>
                 </div>
             `;
@@ -846,7 +856,86 @@
         return html;
     }
 
+    // highlightTerms escapes a file name and marks every place a filter term
+    // occurs in it. A term that matched only the folder part of the path has
+    // nothing to mark here, which is fine: the folder row above says why.
+    function highlightTerms(text) {
+        if (!filterTerms.length) return escapeHtml(text);
+        const lower = text.toLowerCase();
+        const hit = new Array(text.length).fill(false);
+        for (const term of filterTerms) {
+            for (let i = lower.indexOf(term); i !== -1; i = lower.indexOf(term, i + 1)) {
+                hit.fill(true, i, i + term.length);
+            }
+        }
+        let html = '';
+        for (let i = 0; i < text.length;) {
+            let j = i;
+            while (j < text.length && hit[j] === hit[i]) j++;
+            const part = escapeHtml(text.slice(i, j));
+            html += hit[i] ? `<mark class="filter-hit">${part}</mark>` : part;
+            i = j;
+        }
+        return html;
+    }
+
+    function setFilter(query) {
+        filterTerms = query.toLowerCase().split(/\s+/).filter(Boolean);
+        filterCursor = 0;
+        renderFileList();
+    }
+
+    function filterRows() {
+        return [...fileList.querySelectorAll('.tree-file:not(.deleted)')];
+    }
+
+    function moveFilterCursor(delta) {
+        const rows = filterRows();
+        if (!rows.length) return;
+        filterCursor = (filterCursor + delta + rows.length) % rows.length;
+        markFilterCursor(rows);
+        rows[filterCursor].scrollIntoView({ block: 'nearest' });
+    }
+
+    // Marking never scrolls: a re-render from a live update must not move the
+    // list, only the arrow keys may.
+    function markFilterCursor(rows) {
+        rows.forEach((el, i) => el.classList.toggle('is-cursor', i === filterCursor));
+    }
+
+    filterInput.addEventListener('input', () => setFilter(filterInput.value));
+    filterInput.addEventListener('keydown', e => {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            moveFilterCursor(e.key === 'ArrowDown' ? 1 : -1);
+        } else if (e.key === 'Enter') {
+            const row = filterRows()[filterCursor];
+            if (row) selectFile(row.dataset.path);
+        } else if (e.key === 'Escape') {
+            // First Escape clears, the second gives the keyboard back.
+            if (filterInput.value) {
+                filterInput.value = '';
+                setFilter('');
+            } else {
+                filterInput.blur();
+            }
+        }
+    });
+
+    // "/" jumps to the filter from anywhere outside a text field, switching to
+    // the Files tab if another one is showing.
+    document.addEventListener('keydown', e => {
+        if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+        const t = e.target;
+        if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
+        e.preventDefault();
+        document.querySelector('.sidebar-tabs li[data-tab="files"]').click();
+        filterInput.focus();
+        filterInput.select();
+    });
+
     function toggleFolder(path) {
+        if (filterTerms.length) return; // everything is open while filtering
         if (collapsedFolders.has(path)) {
             collapsedFolders.delete(path);
         } else {
@@ -879,6 +968,7 @@
     }
 
     function renderFileList() {
+        filterCount.textContent = '';
         if (files.length === 0 && folders.length === 0) {
             fileList.innerHTML = `
                 <div class="empty-state">
@@ -895,7 +985,30 @@
         // above it, so the folder renders as a node rather than as the root label.
         const paths = files.map(f => f.path).concat(folders.map(f => f.path));
         const commonPrefix = findCommonPrefix(paths);
-        const tree = compactChains(buildTree(files, commonPrefix));
+
+        // The root comes from the whole list, not the matches, so the tree
+        // does not re-root under you as you type. Terms match below the root:
+        // "projects" should not match every file in ~/Desktop/projects.
+        let shown = files;
+        if (filterTerms.length) {
+            const prefixLen = commonPrefix ? commonPrefix.length + 1 : 0;
+            shown = files.filter(f => {
+                const rel = f.path.slice(prefixLen).toLowerCase();
+                return filterTerms.every(t => rel.includes(t));
+            });
+            filterCount.textContent = `${shown.length} of ${files.length}`;
+            if (shown.length === 0) {
+                fileList.innerHTML = `
+                    <div class="empty-state">
+                        <p>No files match</p>
+                    </div>
+                `;
+                updateDeletedBar();
+                updateClearBar();
+                return;
+            }
+        }
+        const tree = compactChains(buildTree(shown, commonPrefix));
 
         let html = '';
         if (commonPrefix) {
@@ -908,6 +1021,12 @@
         fileList.innerHTML = html;
         updateDeletedBar();
         updateClearBar();
+
+        if (filterTerms.length) {
+            const rows = filterRows();
+            filterCursor = Math.min(filterCursor, Math.max(rows.length - 1, 0));
+            markFilterCursor(rows);
+        }
 
         fileList.querySelectorAll('.tree-file').forEach(el => {
             el.addEventListener('click', (e) => {
