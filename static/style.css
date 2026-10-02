@@ -1174,9 +1174,11 @@ article.content.view-table > .table-view {
     height: 100%;
 }
 
-/* Media and the HTML preview go full bleed — a PDF at 72ch is unreadable. */
+/* Media goes full bleed — a PDF at 72ch is unreadable. The HTML preview is
+   not in this list: it gets its full bleed by zeroing the article's padding
+   below, so pulling it out by the padding as well would push it off the left
+   edge of the pane and under the sidebar. */
 article.content .media-figure,
-article.content .html-preview,
 article.content > embed {
     width: auto;
     max-width: none;
