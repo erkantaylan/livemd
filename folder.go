@@ -20,6 +20,10 @@ type WatchedFolder struct {
 	Extensions []string `json:"extensions,omitempty"` // empty = defaultExtensions
 	Recursive  bool     `json:"recursive"`
 	Depth      int      `json:"depth,omitempty"` // 0 = unlimited (non-git mode only)
+	// NoGitignore walks the directory itself even inside a git repo, so files
+	// .gitignore would hide are followed too. The zero value respects it, which
+	// keeps folders saved before the option existed behaving as they did.
+	NoGitignore bool `json:"noGitignore,omitempty"`
 }
 
 // allowedExt returns true if path matches the folder's extension filter.
@@ -92,9 +96,10 @@ func gitIsIgnored(repoDir, path string) bool {
 
 // walkFolder enumerates files under `folder` according to its filter and depth.
 // Uses git ls-files when available so .gitignore is respected automatically;
-// falls back to filepath.Walk with depth cap otherwise.
+// falls back to filepath.Walk with depth cap otherwise, or when the folder opts
+// out of .gitignore.
 func walkFolder(folder *WatchedFolder) ([]string, error) {
-	if isGitRepo(folder.Path) {
+	if !folder.NoGitignore && isGitRepo(folder.Path) {
 		all, err := gitListFiles(folder.Path)
 		if err != nil {
 			return nil, err

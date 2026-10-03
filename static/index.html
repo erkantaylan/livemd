@@ -32,6 +32,10 @@
                 <input class="input" id="add-path-input" placeholder="/path/to/file-or-folder" spellcheck="false">
                 <button class="button" id="add-path-btn" title="Track this path">Add</button>
             </div>
+            <div class="add-options" title="Applied when the path is a folder">
+                <label class="add-option"><input type="checkbox" id="opt-gitignore" checked> Respect .gitignore</label>
+                <label class="add-option"><input type="checkbox" id="opt-docs-only"> Only .md / .txt</label>
+            </div>
             <div class="add-path-error is-hidden" id="add-path-error"></div>
             <div id="deleted-bar" class="deleted-bar is-hidden">
                 <button class="button is-danger" id="remove-deleted-btn">Remove all deleted</button>

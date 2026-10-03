@@ -358,3 +358,56 @@ func TestRefreshAfterGitPull(t *testing.T) {
 		t.Errorf("file added by the pull not picked up")
 	}
 }
+
+// A folder followed with NoGitignore picks up files .gitignore hides, and the
+// default still skips them.
+func TestNoGitignoreFollowsIgnoredFiles(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	home := isolatedHome(t)
+	repo := filepath.Join(home, "repo")
+	writeFile(t, filepath.Join(repo, ".gitignore"), "drafts/\n")
+	writeFile(t, filepath.Join(repo, "a.md"), "# a\n")
+	writeFile(t, filepath.Join(repo, "drafts", "b.md"), "# b\n")
+	if out, err := exec.Command("git", "-C", repo, "init").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	ignored := filepath.Join(repo, "drafts", "b.md")
+
+	h := newHubWithin(t, 5*time.Second)
+	if err := h.FollowFolder(&WatchedFolder{Path: repo, Recursive: true}); err != nil {
+		t.Fatal(err)
+	}
+	if hasFile(h, ignored) {
+		t.Fatalf("gitignored file followed by default")
+	}
+
+	if err := h.FollowFolder(&WatchedFolder{Path: repo, Recursive: true, NoGitignore: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !hasFile(h, ignored) {
+		t.Errorf("gitignored file not followed with NoGitignore")
+	}
+}
+
+// An extension filter limited to documents leaves code files out.
+func TestDocumentsOnlyFilter(t *testing.T) {
+	home := isolatedHome(t)
+	dir := filepath.Join(home, "notes")
+	writeFile(t, filepath.Join(dir, "a.md"), "# a\n")
+	writeFile(t, filepath.Join(dir, "b.txt"), "b\n")
+	writeFile(t, filepath.Join(dir, "c.go"), "package c\n")
+
+	h := newHubWithin(t, 5*time.Second)
+	folder := &WatchedFolder{Path: dir, Recursive: true, Extensions: []string{".md", ".markdown", ".txt"}}
+	if err := h.FollowFolder(folder); err != nil {
+		t.Fatal(err)
+	}
+	if !hasFile(h, filepath.Join(dir, "a.md")) || !hasFile(h, filepath.Join(dir, "b.txt")) {
+		t.Errorf("documents not followed")
+	}
+	if hasFile(h, filepath.Join(dir, "c.go")) {
+		t.Errorf("code file followed despite documents-only filter")
+	}
+}

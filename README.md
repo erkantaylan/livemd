@@ -78,6 +78,7 @@ livemd add docs/guide.md
 livemd add ./docs -r
 livemd add ./src -r --filter "md,go,js"
 livemd add ./misc -r --depth 5         # cap depth in non-git folders
+livemd add ./notes -r --no-gitignore   # include files .gitignore hides
 
 # List watched files
 livemd list
@@ -150,7 +151,7 @@ livemd add docs/demo.md
 ## Features
 
 - **Persistent server** - Start once, add files anytime; state survives restart
-- **Followed folders** - `livemd add ./dir -r` registers everything in a directory; gitignored files are skipped automatically when the folder is in a git repo. A Refresh button on each followed folder reconciles it with disk after a `git pull` or edit — picking up files added since and dropping ones that were deleted or renamed away
+- **Followed folders** - `livemd add ./dir -r` registers everything in a directory; gitignored files are skipped automatically when the folder is in a git repo. Two checkboxes under the sidebar's Add box set up a folder as it is followed — **Respect .gitignore** (on by default) and **Only .md / .txt** — and the choice is saved with the folder, so Refresh and restarts walk it the same way. A Refresh button on each followed folder reconciles it with disk after a `git pull` or edit — picking up files added since and dropping ones that were deleted or renamed away
 - **Tree view sidebar** - Collapsible folder structure with a Refresh button on followed folders
 - **Filter the tree** - Type in the sidebar filter (or press `/` anywhere) to narrow the tree to files whose path matches every term; ↑/↓ move through the matches, Enter opens one, Esc clears
 - **Lazy watching** - Files are registered but only actively watched when selected, and content is rendered on demand: the daemon holds no HTML, so tracking a 40 MB file costs nothing until you open it

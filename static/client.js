@@ -94,6 +94,8 @@
     const widthWideBtn = document.getElementById('width-wide-btn');
     const addPathInput = document.getElementById('add-path-input');
     const addPathBtn = document.getElementById('add-path-btn');
+    const optGitignore = document.getElementById('opt-gitignore');
+    const optDocsOnly = document.getElementById('opt-docs-only');
     const addPathError = document.getElementById('add-path-error');
     const copyBtn = document.getElementById('copy-btn');
     const contentSubheader = document.getElementById('content-subheader');
@@ -359,6 +361,43 @@
             });
     }
 
+    // --- Folder options beside the Add box. They only matter when the path
+    // turns out to be a directory, and are remembered for the app as a whole:
+    // someone who follows notes folders wants the same choice next time. ---
+    const ADD_OPTIONS_STORE_KEY = 'livemd:addOptions';
+    const DOC_EXTENSIONS = ['.md', '.markdown', '.txt'];
+
+    try {
+        const saved = JSON.parse(localStorage.getItem(ADD_OPTIONS_STORE_KEY) || '{}') || {};
+        if (typeof saved.gitignore === 'boolean') optGitignore.checked = saved.gitignore;
+        if (typeof saved.docsOnly === 'boolean') optDocsOnly.checked = saved.docsOnly;
+    } catch (e) {
+        /* unreadable or unavailable — keep the defaults in the markup */
+    }
+
+    function saveAddOptions() {
+        try {
+            localStorage.setItem(ADD_OPTIONS_STORE_KEY, JSON.stringify({
+                gitignore: optGitignore.checked,
+                docsOnly: optDocsOnly.checked,
+            }));
+        } catch (e) {
+            /* private mode / quota — the options still apply this session */
+        }
+    }
+
+    optGitignore.addEventListener('change', saveAddOptions);
+    optDocsOnly.addEventListener('change', saveAddOptions);
+
+    // folderOptionsNote describes how a followed folder was set up, for its
+    // tooltip — otherwise a folder missing its .go files looks broken.
+    function folderOptionsNote(folder) {
+        const notes = [];
+        if (folder.extensions && folder.extensions.length) notes.push('Only ' + folder.extensions.join(' '));
+        if (folder.noGitignore) notes.push('Includes gitignored files');
+        return notes.length ? '\n' + notes.join(' · ') : '';
+    }
+
     // addPath tracks a file via the API; if the path turns out to be a
     // directory, falls back to following it as a folder.
     function addPath(path) {
@@ -371,11 +410,16 @@
             return r.text().then(msg => {
                 if (msg.indexOf('is a directory') !== -1) {
                     // Recursive, like `livemd add <folder> -r`: without it a
-                    // refresh never reaches files in subfolders.
+                    // refresh never reaches files in subfolders. The options
+                    // are saved with the folder, so Refresh and a restart walk
+                    // it the same way.
+                    const folder = { path: path, recursive: true };
+                    if (!optGitignore.checked) folder.noGitignore = true;
+                    if (optDocsOnly.checked) folder.extensions = DOC_EXTENSIONS;
                     return fetch('/api/folders', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ path: path, recursive: true }),
+                        body: JSON.stringify(folder),
                     }).then(fr => fr.ok ? { ok: true, folder: true } : fr.text().then(fm => ({ ok: false, msg: fm })));
                 }
                 return { ok: false, msg: msg };
@@ -790,6 +834,11 @@
         '<path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>' +
         '</svg>';
 
+    function followedNote(path) {
+        const followed = findFollowedFolder(path);
+        return followed ? folderOptionsNote(followed) : '';
+    }
+
     function folderRefreshControl(path) {
         if (!findFollowedFolder(path)) return '';
         const noted = refreshNote && pathsEqual(refreshNote.path, path);
@@ -836,7 +885,7 @@
                 <div class="tree-folder ${isCollapsed ? 'collapsed' : ''}" data-path="${escapeHtml(folder.path)}" style="padding-left: ${indent}px">
                     <span class="folder-toggle" data-path="${escapeHtml(folder.path)}">${chevron}</span>
                     <span class="folder-icon">${folderSvg}</span>
-                    <span class="folder-name" title="${escapeHtml(folder.path)}">${folderLabel(folderName)}</span>
+                    <span class="folder-name" title="${escapeHtml(folder.path + followedNote(folder.path))}">${folderLabel(folderName)}</span>
                     ${refreshControl}
                     <button class="folder-remove" data-path="${escapeHtml(folder.path)}" title="Remove folder from watch">&#10005;</button>
                 </div>

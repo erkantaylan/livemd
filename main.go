@@ -93,12 +93,14 @@ Options:
   --detach          Run as a background daemon
   -r, --recursive   Recursively add files from folder
   --filter EXT      Filter by extensions (comma-separated, e.g. "md,go,js")
+  --no-gitignore    Include files .gitignore would hide (folders in git repos)
 
 Examples:
   livemd start --detach
   livemd add README.md
   livemd add ./docs -r
   livemd add ./src -r --filter "md,go"
+  livemd add ./notes -r --filter "md,txt" --no-gitignore
   livemd install
 `, Version)
 	}
@@ -317,6 +319,7 @@ func printServerAddresses(port int) {
 // Flags:
 //   - -r, --recursive: Enable recursive directory scanning
 //   - --filter: Comma-separated list of extensions to include (e.g., "md,go,js")
+//   - --no-gitignore: Follow files .gitignore would hide
 //
 // The function handles both WSL/Windows path conversion and supports adding
 // single files or entire directories with extension filtering.
@@ -326,6 +329,7 @@ func cmdAdd() {
 	recursiveLong := fs.Bool("recursive", false, "recursively add files from folder")
 	filter := fs.String("filter", "", "filter by extensions (comma-separated, e.g. \"md,go,js\")")
 	depth := fs.Int("depth", 10, "max recursion depth (non-git fallback only; 0 = unlimited)")
+	noGitignore := fs.Bool("no-gitignore", false, "include files .gitignore would hide")
 
 	// Reorder args so flags come first (Go flag package stops at first positional arg)
 	args := os.Args[2:]
@@ -349,7 +353,7 @@ func cmdAdd() {
 	fs.Parse(reordered)
 
 	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: livemd add <file|folder> [-r] [--filter EXT]")
+		fmt.Fprintln(os.Stderr, "Usage: livemd add <file|folder> [-r] [--filter EXT] [--no-gitignore]")
 		os.Exit(1)
 	}
 
@@ -398,7 +402,7 @@ func cmdAdd() {
 			fmt.Fprintf(os.Stderr, "  Example: livemd add %s -r\n", pathArg)
 			os.Exit(1)
 		}
-		addFolder(absPath, port, *filter, *depth)
+		addFolder(absPath, port, *filter, *depth, *noGitignore)
 		return
 	}
 
@@ -429,7 +433,7 @@ func addSingleFile(absPath string, port int) {
 // addFolder registers the folder with the daemon as a "followed" folder. The
 // daemon does the discovery (git-aware when applicable) and keeps watching for
 // new files — see folder.go.
-func addFolder(folderPath string, port int, filterExts string, maxDepth int) {
+func addFolder(folderPath string, port int, filterExts string, maxDepth int, noGitignore bool) {
 	var exts []string
 	if filterExts != "" {
 		for _, ext := range strings.Split(filterExts, ",") {
@@ -445,10 +449,11 @@ func addFolder(folderPath string, port int, filterExts string, maxDepth int) {
 	}
 
 	body, _ := json.Marshal(map[string]interface{}{
-		"path":       folderPath,
-		"extensions": exts,
-		"recursive":  true,
-		"depth":      maxDepth,
+		"path":        folderPath,
+		"extensions":  exts,
+		"recursive":   true,
+		"depth":       maxDepth,
+		"noGitignore": noGitignore,
 	})
 	resp, err := http.Post(fmt.Sprintf("http://localhost:%d/api/folders", port), "application/json", bytes.NewReader(body))
 	if err != nil {

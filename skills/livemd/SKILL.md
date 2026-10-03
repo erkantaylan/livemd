@@ -117,7 +117,8 @@ Never hard-wrap prose in a `.md` file. Write each paragraph and each list item a
 - Adding a file is cheap. The daemon registers it but only watches and renders on
   demand, so tracking a large file costs nothing until it is opened.
 - Gitignored files are skipped automatically when a followed folder is inside a
-  git repo.
+  git repo; pass `--no-gitignore` to follow them too. For documents only, use
+  `--filter md,txt`.
 - Text files are capped at 50 MB; syntax highlighting drops to plain text above
   2 MB. Media is exempt — the browser streams it.
 - Opening a URL for an untracked file tracks it automatically, so a deep link is
