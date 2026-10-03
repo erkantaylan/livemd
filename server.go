@@ -661,7 +661,7 @@ func (h *Hub) RemoveFolder(folderPath string) int {
 	folderPath = filepath.Clean(folderPath)
 	h.mu.Lock()
 	var toRemove []string
-	prefix := folderPath + "/"
+	prefix := folderPath + string(filepath.Separator)
 	for path := range h.files {
 		if strings.HasPrefix(path, prefix) {
 			toRemove = append(toRemove, path)

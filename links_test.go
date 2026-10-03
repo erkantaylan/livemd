@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,7 +24,7 @@ func TestRewriteRef(t *testing.T) {
 		{name: "fragment kept", dest: "./setup.md#install", want: "/docs/setup.md#install"},
 		{name: "percent-encoded space", dest: "my%20notes.md", want: "/docs/my%20notes.md"},
 		{name: "query dropped", dest: "a.md?v=2", want: "/docs/a.md"},
-		{name: "image to raw", dest: "img/logo.png", image: true, want: "/raw?path=%2Fdocs%2Fimg%2Flogo.png"},
+		{name: "image to raw", dest: "img/logo.png", image: true, want: "/raw?path=" + url.QueryEscape(filepath.Join(base, "img", "logo.png"))},
 		{name: "http", dest: "https://example.com", skip: true},
 		{name: "mailto", dest: "mailto:me@example.com", skip: true},
 		{name: "protocol relative", dest: "//cdn.example.com/x.png", skip: true},

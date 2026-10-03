@@ -9,10 +9,13 @@ import (
 )
 
 // isolatedHome points the state file at a fresh temp dir for the test.
+// Windows keeps the state file under APPDATA, not HOME — without both, a test
+// run there overwrites the real watch list.
 func isolatedHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("APPDATA", home)
 	return home
 }
 
