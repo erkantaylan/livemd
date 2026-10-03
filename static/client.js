@@ -303,6 +303,18 @@
         return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
     }
 
+    // Tracked paths arrive in the server's own form — C:\Users\… on Windows —
+    // so the sidebar tree splits on either separator and rejoins with the one
+    // the path already uses. Rejoining keeps folder paths identical to what
+    // the server sent, which matters: they go back to it on Refresh and Remove.
+    function splitPath(path) {
+        return path.split(/[\\/]/);
+    }
+
+    function pathSep(path) {
+        return path.includes('\\') ? '\\' : '/';
+    }
+
     // openPath is the single way a file reaches the screen, whoever asked — the
     // sidebar, a markdown link, a pasted URL, Back. A tracked file is shown
     // straight away; anything else is offered to the server first, which
@@ -655,12 +667,12 @@
     function findCommonPrefix(paths) {
         if (paths.length === 0) return '';
         if (paths.length === 1) {
-            const parts = paths[0].split('/');
+            const parts = splitPath(paths[0]);
             parts.pop();
-            return parts.join('/');
+            return parts.join(pathSep(paths[0]));
         }
 
-        const splitPaths = paths.map(p => p.split('/'));
+        const splitPaths = paths.map(splitPath);
         const minLen = Math.min(...splitPaths.map(p => p.length));
         let commonParts = [];
 
@@ -673,7 +685,7 @@
             }
         }
 
-        return commonParts.join('/');
+        return commonParts.join(pathSep(paths[0]));
     }
 
     // compactChains folds a folder holding nothing but one subfolder into a
@@ -712,14 +724,15 @@
 
         for (const file of files) {
             const relativePath = file.path.slice(prefixLen);
-            const parts = relativePath.split('/');
+            const parts = splitPath(relativePath);
             const fileName = parts.pop();
+            const sep = pathSep(file.path);
 
             let current = tree;
             let currentPath = commonPrefix;
 
             for (const part of parts) {
-                currentPath = currentPath ? currentPath + '/' + part : part;
+                currentPath = currentPath ? currentPath + sep + part : part;
                 if (!current.children[part]) {
                     current.children[part] = {
                         children: {},
@@ -743,10 +756,11 @@
             const relativePath = folder.path.slice(prefixLen);
             if (!relativePath) continue;
 
+            const sep = pathSep(folder.path);
             let current = tree;
             let currentPath = commonPrefix;
-            for (const part of relativePath.split('/')) {
-                currentPath = currentPath ? currentPath + '/' + part : part;
+            for (const part of splitPath(relativePath)) {
+                currentPath = currentPath ? currentPath + sep + part : part;
                 if (!current.children[part]) {
                     current.children[part] = {
                         children: {},
@@ -993,7 +1007,8 @@
         if (filterTerms.length) {
             const prefixLen = commonPrefix ? commonPrefix.length + 1 : 0;
             shown = files.filter(f => {
-                const rel = f.path.slice(prefixLen).toLowerCase();
+                // Forward slashes, so "src/http" matches src\http on Windows.
+                const rel = f.path.slice(prefixLen).replace(/\\/g, '/').toLowerCase();
                 return filterTerms.every(t => rel.includes(t));
             });
             filterCount.textContent = `${shown.length} of ${files.length}`;
@@ -1012,7 +1027,7 @@
 
         let html = '';
         if (commonPrefix) {
-            const rootName = commonPrefix.split('/').pop() || commonPrefix;
+            const rootName = splitPath(commonPrefix).pop() || commonPrefix;
             html += `<div class="tree-root" title="${escapeHtml(commonPrefix)}"><span class="root-name">${escapeHtml(rootName)}</span>${folderRefreshControl(commonPrefix)}</div>`;
         }
 
