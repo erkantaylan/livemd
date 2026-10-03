@@ -411,3 +411,34 @@ func TestDocumentsOnlyFilter(t *testing.T) {
 		t.Errorf("code file followed despite documents-only filter")
 	}
 }
+
+// markIgnored flags files git ignores, honours "!" re-includes, and leaves
+// files outside any repo alone.
+func TestMarkIgnored(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	home := isolatedHome(t)
+	repo := filepath.Join(home, "repo")
+	writeFile(t, filepath.Join(repo, ".gitignore"), "drafts/*\n!drafts/keep.md\n")
+	if out, err := exec.Command("git", "-C", repo, "init").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	paths := map[string]bool{
+		filepath.Join(repo, "a.md"):              false,
+		filepath.Join(repo, "drafts", "d.md"):    true,
+		filepath.Join(repo, "drafts", "keep.md"): false,
+		filepath.Join(home, "loose", "x.md"):     false,
+	}
+	var files []WatchedFile
+	for p := range paths {
+		writeFile(t, p, "# x\n")
+		files = append(files, WatchedFile{Path: p})
+	}
+	markIgnored(files)
+	for _, f := range files {
+		if f.Ignored != paths[f.Path] {
+			t.Errorf("%s: ignored = %v, want %v", f.Path, f.Ignored, paths[f.Path])
+		}
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // WatchedFolder is a directory the daemon "follows": walking it registers every
@@ -92,6 +93,62 @@ func gitIsIgnored(repoDir, path string) bool {
 	}
 	// 128 = not in repo / other error → treat as not-ignored.
 	return false
+}
+
+// repoRoots caches the git work tree each directory belongs to ("" when it is
+// in none), so marking files ignored on every list broadcast costs one git call
+// per repository rather than one per directory.
+var repoRoots sync.Map // dir -> root
+
+func repoRoot(dir string) string {
+	if root, ok := repoRoots.Load(dir); ok {
+		return root.(string)
+	}
+	root := ""
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	if err == nil {
+		root = filepath.Clean(strings.TrimSpace(string(out)))
+	}
+	repoRoots.Store(dir, root)
+	return root
+}
+
+// markIgnored sets Ignored on every file that git would ignore, so the page
+// can hide them on request. Files outside a git repo, and tracked files, are
+// never ignored. Each repository is asked once, with every path on stdin.
+func markIgnored(files []WatchedFile) {
+	byRoot := make(map[string][]int)
+	for i := range files {
+		if root := repoRoot(filepath.Dir(files[i].Path)); root != "" {
+			byRoot[root] = append(byRoot[root], i)
+		}
+	}
+	for root, idx := range byRoot {
+		var stdin bytes.Buffer
+		for _, i := range idx {
+			stdin.WriteString(files[i].Path)
+			stdin.WriteByte(0)
+		}
+		// -v -n prints a record for every path, in input order, so results
+		// are matched by position rather than by how git spells the path.
+		cmd := exec.Command("git", "-C", root, "check-ignore", "--stdin", "-z", "-v", "-n")
+		cmd.Stdin = &stdin
+		out, err := cmd.Output()
+		var ee *exec.ExitError
+		if err != nil && !(errors.As(err, &ee) && ee.ExitCode() == 1) {
+			continue // git unavailable or confused: show everything
+		}
+		// Each record is source, line, pattern, path.
+		fields := bytes.Split(out, []byte{0})
+		for n, i := range idx {
+			if 4*n+2 >= len(fields) {
+				break
+			}
+			pattern := string(fields[4*n+2])
+			// A "!" pattern is the last match and re-includes the path.
+			files[i].Ignored = pattern != "" && !strings.HasPrefix(pattern, "!")
+		}
+	}
 }
 
 // walkFolder enumerates files under `folder` according to its filter and depth.

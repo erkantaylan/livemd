@@ -30,8 +30,9 @@ type WatchedFile struct {
 	Name       string    `json:"name"`
 	TrackTime  time.Time `json:"trackTime"`
 	LastChange time.Time `json:"lastChange"`
-	Active     bool      `json:"active"`  // true if actively being watched by fsnotify
-	Deleted    bool      `json:"deleted"` // true if file was deleted from disk
+	Active     bool      `json:"active"`            // true if actively being watched by fsnotify
+	Deleted    bool      `json:"deleted"`           // true if file was deleted from disk
+	Ignored    bool      `json:"ignored,omitempty"` // git ignores it; set only in list broadcasts
 }
 
 // Message sent to clients via WebSocket
@@ -215,11 +216,18 @@ func (h *Hub) snapshotFilesFolders() ([]WatchedFile, []WatchedFolder) {
 	return files, folders
 }
 
-func (h *Hub) sendFileList(client *Client) {
+// fileListMessage is the "files" broadcast. Ignored is worked out here, outside
+// the lock, so the page's "Respect .gitignore" filter always sees the current
+// .gitignore rather than the one in force when each file was added.
+func (h *Hub) fileListMessage() []byte {
 	files, folders := h.snapshotFilesFolders()
-	msg := Message{Type: "files", Files: files, Folders: folders}
-	data, _ := json.Marshal(msg)
-	client.send <- data
+	markIgnored(files)
+	data, _ := json.Marshal(Message{Type: "files", Files: files, Folders: folders})
+	return data
+}
+
+func (h *Hub) sendFileList(client *Client) {
+	client.send <- h.fileListMessage()
 
 	logs := h.logger.GetEntries()
 	logsMsg := Message{Type: "logs", Logs: logs}
@@ -228,10 +236,7 @@ func (h *Hub) sendFileList(client *Client) {
 }
 
 func (h *Hub) broadcastFileList() {
-	files, folders := h.snapshotFilesFolders()
-	msg := Message{Type: "files", Files: files, Folders: folders}
-	data, _ := json.Marshal(msg)
-	h.broadcast <- data
+	h.broadcast <- h.fileListMessage()
 }
 
 func (h *Hub) broadcastFileUpdate(file *WatchedFile) {

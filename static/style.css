@@ -313,11 +313,19 @@ body.sidebar-resizing {
     display: flex;
     gap: var(--s-1);
     padding: var(--s-2);
+    border-bottom: 1px solid var(--rule);
 }
 
-/* Folder options sit under the Add box: quiet labels that only matter when the
-   path is a folder. */
-.add-options {
+/* The match count sits inside the field's right edge; the input reserves room
+   for it so a long query never runs underneath. */
+.filter-bar {
+    position: relative;
+    padding: var(--s-2);
+}
+
+/* View options narrow the tree like the filter above them: quiet labels, so
+   they read as part of the filter rather than as actions. */
+.view-options {
     display: flex;
     flex-wrap: wrap;
     gap: var(--s-1) var(--s-3);
@@ -325,7 +333,7 @@ body.sidebar-resizing {
     border-bottom: 1px solid var(--rule);
 }
 
-.add-option {
+.view-option {
     display: inline-flex;
     align-items: center;
     gap: var(--s-1);
@@ -335,17 +343,9 @@ body.sidebar-resizing {
     user-select: none;
 }
 
-.add-option input {
+.view-option input {
     margin: 0;
     accent-color: var(--accent);
-}
-
-/* The match count sits inside the field's right edge; the input reserves room
-   for it so a long query never runs underneath. */
-.filter-bar {
-    position: relative;
-    padding: var(--s-2);
-    border-bottom: 1px solid var(--rule);
 }
 
 .filter-bar .input {

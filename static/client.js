@@ -361,23 +361,32 @@
             });
     }
 
-    // --- Folder options beside the Add box. They only matter when the path
-    // turns out to be a directory, and are remembered for the app as a whole:
-    // someone who follows notes folders wants the same choice next time. ---
-    const ADD_OPTIONS_STORE_KEY = 'livemd:addOptions';
-    const DOC_EXTENSIONS = ['.md', '.markdown', '.txt'];
+    // --- View options under the filter. Like the filter they narrow the tree
+    // without touching the watch list, and they are remembered for the app as
+    // a whole: someone reading notes wants the same view next time. Respect
+    // .gitignore also decides whether a newly followed folder picks up ignored
+    // files, so that turning it off has something to show. ---
+    const VIEW_OPTIONS_STORE_KEY = 'livemd:viewOptions';
+    const DOC_FILE = /\.(md|markdown|txt)$/i;
+
+    // The server marks files git ignores in every file list it sends.
+    function passesViewOptions(f) {
+        if (optGitignore.checked && f.ignored) return false;
+        if (optDocsOnly.checked && !DOC_FILE.test(f.path)) return false;
+        return true;
+    }
 
     try {
-        const saved = JSON.parse(localStorage.getItem(ADD_OPTIONS_STORE_KEY) || '{}') || {};
+        const saved = JSON.parse(localStorage.getItem(VIEW_OPTIONS_STORE_KEY) || '{}') || {};
         if (typeof saved.gitignore === 'boolean') optGitignore.checked = saved.gitignore;
         if (typeof saved.docsOnly === 'boolean') optDocsOnly.checked = saved.docsOnly;
     } catch (e) {
         /* unreadable or unavailable — keep the defaults in the markup */
     }
 
-    function saveAddOptions() {
+    function saveViewOptions() {
         try {
-            localStorage.setItem(ADD_OPTIONS_STORE_KEY, JSON.stringify({
+            localStorage.setItem(VIEW_OPTIONS_STORE_KEY, JSON.stringify({
                 gitignore: optGitignore.checked,
                 docsOnly: optDocsOnly.checked,
             }));
@@ -386,8 +395,10 @@
         }
     }
 
-    optGitignore.addEventListener('change', saveAddOptions);
-    optDocsOnly.addEventListener('change', saveAddOptions);
+    [optGitignore, optDocsOnly].forEach(el => el.addEventListener('change', () => {
+        saveViewOptions();
+        renderFileList();
+    }));
 
     // folderOptionsNote describes how a followed folder was set up, for its
     // tooltip — otherwise a folder missing its .go files looks broken.
@@ -410,12 +421,11 @@
             return r.text().then(msg => {
                 if (msg.indexOf('is a directory') !== -1) {
                     // Recursive, like `livemd add <folder> -r`: without it a
-                    // refresh never reaches files in subfolders. The options
-                    // are saved with the folder, so Refresh and a restart walk
-                    // it the same way.
+                    // refresh never reaches files in subfolders. The option is
+                    // saved with the folder, so Refresh and a restart walk it
+                    // the same way.
                     const folder = { path: path, recursive: true };
                     if (!optGitignore.checked) folder.noGitignore = true;
-                    if (optDocsOnly.checked) folder.extensions = DOC_EXTENSIONS;
                     return fetch('/api/folders', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -1052,14 +1062,16 @@
         // The root comes from the whole list, not the matches, so the tree
         // does not re-root under you as you type. Terms match below the root:
         // "projects" should not match every file in ~/Desktop/projects.
-        let shown = files;
+        let shown = files.filter(passesViewOptions);
         if (filterTerms.length) {
             const prefixLen = commonPrefix ? commonPrefix.length + 1 : 0;
-            shown = files.filter(f => {
+            shown = shown.filter(f => {
                 // Forward slashes, so "src/http" matches src\http on Windows.
                 const rel = f.path.slice(prefixLen).replace(/\\/g, '/').toLowerCase();
                 return filterTerms.every(t => rel.includes(t));
             });
+        }
+        if (shown.length < files.length) {
             filterCount.textContent = `${shown.length} of ${files.length}`;
             if (shown.length === 0) {
                 fileList.innerHTML = `
