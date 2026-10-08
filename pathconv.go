@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -32,6 +31,12 @@ func convertToWindowsPath(path string) string {
 			rest = path[6:]
 		}
 		return drive + ":" + strings.ReplaceAll(rest, "/", "\\")
+	}
+
+	// Only an absolute Linux path names a WSL location. Relative paths ("."),
+	// UNC paths and backslash paths belong to the Windows side as they are.
+	if !strings.HasPrefix(path, "/") {
+		return path
 	}
 
 	// It's a native WSL path, convert to \\wsl$\ or \\wsl.localhost\
@@ -98,7 +103,7 @@ func getWSLDistro() string {
 	}
 
 	// Try running wsl to get default distro
-	cmd := exec.Command("wsl", "-l", "-q")
+	cmd := hiddenCommand("wsl", "-l", "-q")
 	out, err := cmd.Output()
 	if err == nil {
 		lines := strings.Split(string(out), "\n")

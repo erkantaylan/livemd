@@ -44,7 +44,7 @@ func (f *WatchedFolder) allowedExt(path string) bool {
 
 // isGitRepo returns true when `path` is inside a git working tree.
 func isGitRepo(path string) bool {
-	cmd := exec.Command("git", "-C", path, "rev-parse", "--is-inside-work-tree")
+	cmd := hiddenCommand("git", "-C", path, "rev-parse", "--is-inside-work-tree")
 	out, err := cmd.Output()
 	if err != nil {
 		return false
@@ -55,7 +55,7 @@ func isGitRepo(path string) bool {
 // gitListFiles returns absolute paths of files git would consider part of the
 // project at `dir` (tracked + untracked-not-ignored). Submodules are skipped.
 func gitListFiles(dir string) ([]string, error) {
-	cmd := exec.Command("git", "-C", dir,
+	cmd := hiddenCommand("git", "-C", dir,
 		"ls-files",
 		"--cached", "--others", "--exclude-standard",
 		"-z", // null-separated for paths with newlines/spaces
@@ -82,7 +82,7 @@ func gitListFiles(dir string) ([]string, error) {
 // gitIsIgnored returns true if `path` is ignored according to git in `repoDir`.
 // Returns false if not in a git repo or git is unavailable.
 func gitIsIgnored(repoDir, path string) bool {
-	cmd := exec.Command("git", "-C", repoDir, "check-ignore", "-q", path)
+	cmd := hiddenCommand("git", "-C", repoDir, "check-ignore", "-q", path)
 	err := cmd.Run()
 	if err == nil {
 		return true // exit 0 = ignored
@@ -105,7 +105,7 @@ func repoRoot(dir string) string {
 		return root.(string)
 	}
 	root := ""
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	out, err := hiddenCommand("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
 	if err == nil {
 		root = filepath.Clean(strings.TrimSpace(string(out)))
 	}
@@ -131,7 +131,7 @@ func markIgnored(files []WatchedFile) {
 		}
 		// -v -n prints a record for every path, in input order, so results
 		// are matched by position rather than by how git spells the path.
-		cmd := exec.Command("git", "-C", root, "check-ignore", "--stdin", "-z", "-v", "-n")
+		cmd := hiddenCommand("git", "-C", root, "check-ignore", "--stdin", "-z", "-v", "-n")
 		cmd.Stdin = &stdin
 		out, err := cmd.Output()
 		var ee *exec.ExitError
