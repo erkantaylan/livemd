@@ -55,6 +55,11 @@
        at the 16px document size. */
     --measure: 39rem;
     --measure-wide: 52rem;
+
+    /* Top bars. The sidebar header and the content header share one height so
+       their bottom rules line up and the sidebar toggle sits in the same spot
+       over either. */
+    --bar-height: 48px;
 }
 
 *,
@@ -90,16 +95,40 @@ body {
 /* ============================================================ Sidebar ==== */
 
 /* Collapsed, the sidebar and its resizer leave the layout entirely and the
-   document takes the window; a button at the start of the content header
-   brings it back (Ctrl+B toggles either way). */
+   document takes the window. One toggle does both directions (Ctrl+B too), and
+   it is pinned to the corner rather than living in either bar: a hide button in
+   the sidebar and a show button in the content header put the control in two
+   places, so it jumped out from under the cursor every time it was used. Both
+   bars are --bar-height tall, so the corner is the same spot in either state. */
 body.sidebar-collapsed .sidebar,
 body.sidebar-collapsed .sidebar-resizer {
     display: none;
 }
 
-/* Specific enough to beat .icon-btn's display, which comes later. */
-body:not(.sidebar-collapsed) .sidebar-show-btn {
-    display: none;
+.sidebar-toggle {
+    position: fixed;
+    top: calc((var(--bar-height) - 24px) / 2);
+    left: var(--s-3);
+    z-index: 10;
+}
+
+/* Room for the toggle in whichever bar it sits over. */
+.sidebar-header .logo {
+    margin-left: calc(24px + var(--s-2));
+}
+
+body.sidebar-collapsed .content-header {
+    padding-left: calc(var(--s-3) + 24px + var(--s-3));
+}
+
+/* The chevron points the way the sidebar will go. */
+.sidebar-toggle-chevron {
+    transition: transform 0.15s;
+    transform-origin: 15px 12px;
+}
+
+body.sidebar-collapsed .sidebar-toggle-chevron {
+    transform: scaleX(-1);
 }
 
 /* A quiet square icon button: no surface until hovered, 24px hit target. */
@@ -155,7 +184,8 @@ body.sidebar-resizing {
 }
 
 .sidebar-header {
-    padding: var(--s-3);
+    min-height: var(--bar-height);
+    padding: 0 var(--s-3);
     border-bottom: 1px solid var(--rule);
     display: flex;
     justify-content: space-between;
@@ -1068,7 +1098,8 @@ main {
     display: flex;
     align-items: center;
     gap: var(--s-3);
-    padding: var(--s-2) var(--s-4);
+    min-height: var(--bar-height);
+    padding: var(--s-1) var(--s-4);
     background: var(--chrome);
     border-bottom: 1px solid var(--rule);
     flex-shrink: 0;

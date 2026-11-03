@@ -202,6 +202,12 @@ is a single choice and has to look like one. The active segment is `--accent`
 filled; this is one of the few places the cool colour appears, and it is
 carrying real state.
 
+Normal / Wide comes first and Preview / Raw sits last, against the right edge.
+Switching to Raw hides Normal / Wide, because a source view has no measure to
+widen. With the order the other way round, Preview / Raw slid sideways the
+moment it was clicked, out from under the cursor, and switching back meant
+hunting for it. A control must not move as a result of being used.
+
 ### The tree
 
 Folder chains with a single child collapse into one row: `skills/aspire/
@@ -263,7 +269,9 @@ The dialog is drawn in the page, never `window.confirm()`. The native one blocks
 
 ### Hiding the sidebar
 
-The sidebar hides completely: no rail, no icons left behind. The document gets the whole window, which is the point. The header icon hides it, an icon at the start of the content header brings it back, and Ctrl+B toggles both ways. The choice is remembered like Normal/Wide, since it belongs to the window rather than the file.
+The sidebar hides completely: no rail, no icons left behind. The document gets the whole window, which is the point. One toggle, pinned to the top-left corner, both hides and shows it, and Ctrl+B does the same. The choice is remembered like Normal/Wide, since it belongs to the window rather than the file.
+
+It is one control on purpose. A hide button in the sidebar header and a show button in the content header put it in two places, so it jumped out from under the cursor every time it was used. For the corner to be the same spot in both states, the sidebar header and the content header share one height, `--bar-height`, which also lines up their bottom rules.
 
 ### Saying things the way a person would
 

@@ -104,8 +104,7 @@
     const inboxCount = document.getElementById('inbox-count');
     const inboxPathBtn = document.getElementById('inbox-path');
     const inboxSortSelect = document.getElementById('inbox-sort');
-    const sidebarHideBtn = document.getElementById('sidebar-hide-btn');
-    const sidebarShowBtn = document.getElementById('sidebar-show-btn');
+    const sidebarToggle = document.getElementById('sidebar-toggle');
     const confirmDialog = document.getElementById('confirm-dialog');
     const confirmTitle = document.getElementById('confirm-title');
     const confirmBody = document.getElementById('confirm-body');
@@ -1943,19 +1942,28 @@
     // remembered, like Normal/Wide: it belongs to the window you read in.
     const SIDEBAR_STORE_KEY = 'livemd:sidebarCollapsed';
 
-    function setSidebarCollapsed(collapsed) {
+    function applySidebarCollapsed(collapsed) {
         document.body.classList.toggle('sidebar-collapsed', collapsed);
+        const label = (collapsed ? 'Show' : 'Hide') + ' sidebar';
+        sidebarToggle.title = label + ' (Ctrl+B)';
+        sidebarToggle.setAttribute('aria-label', label);
+        sidebarToggle.setAttribute('aria-expanded', String(!collapsed));
+    }
+
+    function setSidebarCollapsed(collapsed) {
+        applySidebarCollapsed(collapsed);
         try { localStorage.setItem(SIDEBAR_STORE_KEY, collapsed ? '1' : '0'); } catch (e) { /* session only */ }
     }
 
     try {
-        if (localStorage.getItem(SIDEBAR_STORE_KEY) === '1') document.body.classList.add('sidebar-collapsed');
+        if (localStorage.getItem(SIDEBAR_STORE_KEY) === '1') applySidebarCollapsed(true);
     } catch (e) {
         /* unavailable — start open */
     }
 
-    sidebarHideBtn.addEventListener('click', () => setSidebarCollapsed(true));
-    sidebarShowBtn.addEventListener('click', () => setSidebarCollapsed(false));
+    sidebarToggle.addEventListener('click', () => {
+        setSidebarCollapsed(!document.body.classList.contains('sidebar-collapsed'));
+    });
     document.addEventListener('keydown', e => {
         if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'b') {
             e.preventDefault();
