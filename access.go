@@ -68,6 +68,11 @@ func (h *Hub) trackedRootsLocked() []string {
 	for p := range h.folders {
 		roots = append(roots, p)
 	}
+	// The inbox is a root of its own, so its files render without joining the
+	// watch list, and a dump that links to a sibling dump resolves.
+	if h.inbox != nil {
+		roots = append(roots, h.inbox.dir)
+	}
 	seen := make(map[string]bool, len(h.files))
 	for p := range h.files {
 		dir := filepath.Dir(p)

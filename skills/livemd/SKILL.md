@@ -1,6 +1,6 @@
 ---
 name: livemd
-description: Render a file in the browser with live reload via the livemd server, instead of dumping it into the terminal - markdown, code, CSV, images, PDFs, media. Opt-in only - invoke when the user explicitly runs /livemd, or asks by name to livemd / preview / render / watch a file or folder, or asks about livemd server lifecycle (start, stop, list, remove, port, install). Do NOT invoke on your own initiative just because a file was generated.
+description: Render a file in the browser with live reload via the livemd server, instead of dumping it into the terminal - markdown, code, CSV, images, PDFs, media. Opt-in only - invoke when the user explicitly runs /livemd, or asks by name to livemd / preview / render / watch a file or folder, or asks about livemd server lifecycle (start, stop, list, remove, port, install), or says `livemd:inbox` / asks to dump output into the livemd inbox. Do NOT invoke on your own initiative just because a file was generated.
 ---
 
 # LiveMD
@@ -16,6 +16,7 @@ This skill is **opt-in**. Use it only when the user has asked for it:
 - They ran `/livemd`.
 - They named livemd ("livemd this", "add it to livemd", "is the livemd server up?").
 - They asked to preview / render / open / watch a specific file *in the browser*.
+- They wrote `livemd:inbox`, or asked you to dump / drop something in the inbox (see below).
 
 Do not reach for livemd unprompted after generating a report, plan, or doc. Hand
 those over the normal way unless the user asks to see them rendered.
@@ -29,6 +30,8 @@ livemd add ./docs -r           # follow a folder (Refresh picks up later additio
 livemd add ./src -r --filter "md,go,js"
 livemd add ./misc -r --depth 5 # cap depth outside git repos
 livemd list                    # what is currently tracked
+livemd inbox                   # print the inbox folder (creates it)
+livemd skill                   # print this skill, as shipped with the installed binary
 livemd remove README.md        # stop tracking
 livemd stop                    # stop the daemon
 livemd port 3001               # change the port persistently
@@ -50,6 +53,19 @@ livemd install                 # self-update from the latest GitHub release
 
 That link is the whole handoff. Do not also paste the file contents into the
 terminal — displaying it twice is the thing livemd exists to avoid.
+
+## The inbox: `livemd:inbox`
+
+The inbox is one folder the daemon always watches, shown in the browser's **Inbox** tab. It is where output goes that the user wants to read in the browser but would never `livemd add` by hand: reviews, reports, plans, tables, logs.
+
+`livemd:inbox` is an instruction with a fixed meaning, the way `x:` commands are. "Dump it", "put it in the inbox" and "drop that in livemd" mean the same thing. It means:
+
+1. **Get the folder from livemd.** Run `livemd inbox`. It prints the absolute path and creates the folder. Don't hardcode the path: it differs per OS and may move.
+2. **Write the output there as a file**, directly in that folder. Subfolders are ignored. Choose a short, descriptive name with the right extension (`auth-review.md`, `deps.csv`, `build.log`). If the name is already taken by something you didn't write in this session, pick another rather than overwriting.
+3. **Don't `livemd add` it.** The daemon picks it up the moment it lands and reloads it whenever you rewrite it. Names starting with `.` are hidden, so writing to a dotfile and renaming it into place keeps a half-written file off the list.
+4. **Hand back the link in one line**, the same deep link as the standard flow: `http://localhost:<port>/<absolute path>`. `livemd port` prints the running port. If the daemon is not running, start it first (step 1 of the standard flow); the file only shows up while it runs.
+
+The inbox belongs to the user. Files leave it when the user moves them to the trash from the Inbox tab, which asks first and uses the system trash. Don't delete or tidy inbox files unless you were asked to.
 
 ## Paths this machine keeps tracked
 
@@ -135,15 +151,12 @@ Never hard-wrap prose in a `.md` file. Write each paragraph and each list item a
   lock file (`/tmp/livemd.lock`) was left by a daemon that died. v0.16.0 and later
   clear it automatically; on older versions delete it by hand.
 
-## Installing this skill on another machine
+## Installing or updating this skill
 
-This file is the original, committed at `skills/livemd/SKILL.md` in the livemd
-repo. To make `/livemd` available globally elsewhere, copy the directory:
+`livemd skill` prints the copy of this file that ships inside the installed livemd binary, so it always matches the version that is running. You install it yourself:
 
-```bash
-mkdir -p ~/.claude/skills
-cp -r /path/to/livemd/skills/livemd ~/.claude/skills/livemd
-```
+1. Run `livemd skill` and capture the output.
+2. Write it to the agent's skill folder. For Claude Code, that is `~/.claude/skills/livemd/SKILL.md` for every project, or `.claude/skills/livemd/SKILL.md` inside a single repo.
+3. If a copy is already there, merge rather than overwrite. Keep its machine-specific content (the real paths under "Paths this machine keeps tracked", notes about this machine's setup) and take everything else from the new copy.
 
-Re-copy after editing the repo copy to keep the two in sync, carrying over the
-local copy's own paths and machine setup rather than overwriting them.
+Run it again after `livemd install` updates the binary.

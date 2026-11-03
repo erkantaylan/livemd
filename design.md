@@ -247,6 +247,30 @@ Feedback that must survive a re-render lives in JS state keyed by the thing it
 describes, never on the DOM node — the element is usually replaced before the
 message is read.
 
+### The inbox
+
+The Inbox tab lists one fixed folder (`livemd inbox` prints it) that the daemon watches with fsnotify. Unlike a followed folder, it is pushed, not pulled. A followed folder is a tree under git, where a watcher reports churn badly and a Refresh button is the honest control. The inbox is flat and written by programs, so one watch on one directory is exact, and a Refresh button there would be a chore with nothing to gain.
+
+Its rows look like tree rows (same icon, name, selected state) so the eye doesn't have to learn a second list. Each row also shows when the file last changed and how big it is: in a dump folder, "which one is new" is the question you came with.
+
+Removing works differently here, and the control shows it. In the tree, ✕ means *stop tracking*, and its tooltip says the file stays on disk. In the inbox, the control is a bin icon, and it moves the file to the system trash. Both are hover-revealed, per the rule above.
+
+### Confirming a destructive action
+
+Clear all arms on the first click and fires on a second. That works there because it only changes livemd's own list. Moving a file to the trash changes the disk, so it asks in a dialog instead: a title naming the file, one line saying where it goes and that it can be restored, Cancel, and a filled `--danger` button labelled with the action ("Move to trash", never "OK").
+
+The dialog is drawn in the page, never `window.confirm()`. The native one blocks the page, freezes anything automating it, and looks like nothing else here. Focus starts on the confirm button, so Enter commits. Escape or a click on the scrim cancels, and Tab stays inside the dialog.
+
+### Hiding the sidebar
+
+The sidebar hides completely: no rail, no icons left behind. The document gets the whole window, which is the point. The header icon hides it, an icon at the start of the content header brings it back, and Ctrl+B toggles both ways. The choice is remembered like Normal/Wide, since it belongs to the window rather than the file.
+
+### Saying things the way a person would
+
+Times read as "just now", "4 min ago", "yesterday 14:05". The exact timestamp is in the tooltip. They update in place every 30 seconds, and only the text changes. Sizes read like a file manager's: 512 B, 3.4 KB.
+
+Empty states say what to do next, not just that something is missing. Placeholders for files the page can't show (binary, too large) give the name, the size, the reason, and a Download button, so an unreadable file is still something you can get at.
+
 ## What to avoid
 
 - **A CSS framework.** Bulma was carried for four component styles and cost a

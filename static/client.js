@@ -100,6 +100,17 @@
     const copyBtn = document.getElementById('copy-btn');
     const contentSubheader = document.getElementById('content-subheader');
     const lineInfo = document.getElementById('line-info');
+    const inboxList = document.getElementById('inbox-list');
+    const inboxCount = document.getElementById('inbox-count');
+    const inboxPathBtn = document.getElementById('inbox-path');
+    const inboxSortSelect = document.getElementById('inbox-sort');
+    const sidebarHideBtn = document.getElementById('sidebar-hide-btn');
+    const sidebarShowBtn = document.getElementById('sidebar-show-btn');
+    const confirmDialog = document.getElementById('confirm-dialog');
+    const confirmTitle = document.getElementById('confirm-title');
+    const confirmBody = document.getElementById('confirm-body');
+    const confirmOk = document.getElementById('confirm-ok');
+    const confirmCancel = document.getElementById('confirm-cancel');
 
     let ws;
     let reconnectDelay = 1000;
@@ -107,6 +118,12 @@
 
     let files = [];
     let folders = []; // followed folders (walked again on Refresh)
+    // The inbox: one folder the daemon watches, listed in its own tab. Its
+    // files are not tracked files — they never appear in the Files tree, and
+    // removing one moves it to the OS trash.
+    let inboxFiles = [];
+    let inboxDir = '';
+    let inboxNote = null; // { text, timer } — outcome of the last trash
     let logs = [];
     let activeFile = null;
     // The untracked file currently on screen, if any: reached by following a
@@ -247,9 +264,14 @@
         setViewKind('document');
         content.innerHTML = `
             <div class="welcome">
-                <h1>LiveMD</h1>
-                <p>Add a markdown file to get started:</p>
-                <pre><code>livemd add README.md</code></pre>
+                <h1>Nothing open yet</h1>
+                <p>Pick a file in the sidebar, or bring one in:</p>
+                <ul class="welcome-steps">
+                    <li>Paste a file or folder path into the box at the top of the sidebar.</li>
+                    <li>From a terminal: <code>livemd add README.md</code>, or <code>livemd add ./docs -r</code> for a folder.</li>
+                    <li>Drop files into the inbox folder — <code>livemd inbox</code> prints where it is — and they show up in the Inbox tab.</li>
+                </ul>
+                <p class="welcome-hint">Whatever you open reloads as the file changes on disk.</p>
             </div>
         `;
         document.title = 'LiveMD';
@@ -297,6 +319,8 @@
     function fileFor(path) {
         const tracked = files.find(f => pathsEqual(f.path, path));
         if (tracked) return tracked;
+        const dropped = inboxFileFor(path);
+        if (dropped) return dropped;
         if (ephemeral && pathsEqual(ephemeral.path, path)) return ephemeral;
         return null;
     }
@@ -326,7 +350,7 @@
     // back to tracking, since typing a path is itself a request to open it).
     function openPath(path, opts) {
         opts = opts || {};
-        const tracked = files.find(f => pathsEqual(f.path, path));
+        const tracked = files.find(f => pathsEqual(f.path, path)) || inboxFileFor(path);
         if (tracked) {
             selectFile(tracked.path, opts);
             return;
@@ -524,18 +548,29 @@
         if (e.key === 'Enter') submitAddPath();
     });
 
-    // Tab switching
+    // Tab switching. Files and Inbox are where you work, so the one you were
+    // in is remembered; Logs and Changelog are a look and back.
+    const TAB_STORE_KEY = 'livemd:tab';
+    function showTab(name) {
+        const li = document.querySelector('.sidebar-tabs li[data-tab="' + name + '"]');
+        if (!li) return;
+        document.querySelectorAll('.sidebar-tabs li').forEach(l => l.classList.remove('is-active'));
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.add('is-hidden'));
+        li.classList.add('is-active');
+        document.getElementById(name + '-tab').classList.remove('is-hidden');
+        if (name === 'changelog') loadChangelog();
+        if (name === 'files' || name === 'inbox') {
+            try { localStorage.setItem(TAB_STORE_KEY, name); } catch (e) { /* session only */ }
+        }
+    }
     document.querySelectorAll('.sidebar-tabs li').forEach(li => {
-        li.addEventListener('click', () => {
-            document.querySelectorAll('.sidebar-tabs li').forEach(l => l.classList.remove('is-active'));
-            document.querySelectorAll('.tab-content').forEach(t => t.classList.add('is-hidden'));
-            li.classList.add('is-active');
-            document.getElementById(li.dataset.tab + '-tab').classList.remove('is-hidden');
-            if (li.dataset.tab === 'changelog') {
-                loadChangelog();
-            }
-        });
+        li.addEventListener('click', () => showTab(li.dataset.tab));
     });
+    try {
+        if (localStorage.getItem(TAB_STORE_KEY) === 'inbox') showTab('inbox');
+    } catch (e) {
+        /* unavailable — Files it is */
+    }
 
     // Remove all deleted files button
     removeDeletedBtn.addEventListener('click', () => {
@@ -709,13 +744,31 @@
         return '';
     }
 
-    function formatShortDateTime(isoString) {
+    // relativeTime says how long ago something happened the way a person
+    // would — "just now", "4 min ago", "yesterday 14:05" — with the exact time
+    // left to a tooltip. Anything older than a week gets a plain date.
+    function relativeTime(isoString) {
         const date = new Date(isoString);
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        const hours = String(date.getHours()).padStart(2, '0');
-        const mins = String(date.getMinutes()).padStart(2, '0');
-        return `${month}-${day} ${hours}:${mins}`;
+        const secs = (Date.now() - date.getTime()) / 1000;
+        const clock = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        if (secs < 45) return 'just now';
+        if (secs < 3600) return Math.max(1, Math.round(secs / 60)) + ' min ago';
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        if (date >= startOfToday) return 'today ' + clock;
+        const startOfYesterday = new Date(startOfToday.getTime() - 86400000);
+        if (date >= startOfYesterday) return 'yesterday ' + clock;
+        if (secs < 7 * 86400) return date.toLocaleDateString([], { weekday: 'long' }) + ' ' + clock;
+        return date.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    function humanSize(n) {
+        if (n < 1024) return n + ' B';
+        const units = ['KB', 'MB', 'GB', 'TB'];
+        let v = n / 1024;
+        let i = 0;
+        while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+        return (v < 10 ? v.toFixed(1) : Math.round(v)) + ' ' + units[i];
     }
 
     function findCommonPrefix(paths) {
@@ -897,7 +950,7 @@
                     <span class="folder-icon">${folderSvg}</span>
                     <span class="folder-name" title="${escapeHtml(folder.path + followedNote(folder.path))}">${folderLabel(folderName)}</span>
                     ${refreshControl}
-                    <button class="folder-remove" data-path="${escapeHtml(folder.path)}" title="Remove folder from watch">&#10005;</button>
+                    <button class="folder-remove" data-path="${escapeHtml(folder.path)}" title="Stop tracking this folder — its files stay on disk">&#10005;</button>
                 </div>
             `;
 
@@ -921,7 +974,7 @@
                 <div class="file-item tree-file ${file.path === activeFile ? 'active' : ''} ${stateClass} ${deletedClass}" data-path="${escapeHtml(file.path)}" style="padding-left: ${indent}px">
                     <span class="file-icon">${iconHtml}</span>
                     <span class="file-name" title="${escapeHtml(file.path)}">${highlightTerms(file.displayName)}</span>
-                    <button class="file-remove" data-path="${escapeHtml(file.path)}" title="Remove from watch">&#10005;</button>
+                    <button class="file-remove" data-path="${escapeHtml(file.path)}" title="Stop tracking — the file stays on disk">&#10005;</button>
                 </div>
             `;
         }
@@ -1002,7 +1055,8 @@
         const t = e.target;
         if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
         e.preventDefault();
-        document.querySelector('.sidebar-tabs li[data-tab="files"]').click();
+        setSidebarCollapsed(false);
+        showTab('files');
         filterInput.focus();
         filterInput.select();
     });
@@ -1045,7 +1099,8 @@
         if (files.length === 0 && folders.length === 0) {
             fileList.innerHTML = `
                 <div class="empty-state">
-                    <p>No files being watched</p>
+                    <p>Nothing tracked yet.</p>
+                    <p>Paste a path above, or run</p>
                     <code>livemd add file.md</code>
                 </div>
             `;
@@ -1076,7 +1131,8 @@
             if (shown.length === 0) {
                 fileList.innerHTML = `
                     <div class="empty-state">
-                        <p>No files match</p>
+                        <p>No files match.</p>
+                        <p>Esc clears the filter${optDocsOnly.checked || optGitignore.checked ? '; the options under it hide some files too' : ''}.</p>
                     </div>
                 `;
                 updateDeletedBar();
@@ -1466,7 +1522,8 @@
     // one is meaningful, plus Copy for anything text-based. Hidden entirely for
     // media files and the welcome screen.
     function updateSubheader(file) {
-        if (!file || mediaExtRe.test(file.path)) {
+        // A placeholder (binary, too large) has nothing to count or copy.
+        if (!file || mediaExtRe.test(file.path) || content.querySelector(':scope > .file-placeholder')) {
             contentSubheader.classList.add('is-hidden');
             return;
         }
@@ -1593,6 +1650,7 @@
         updateViewToggle(file);
         updateSubheader(file);
         trackBtn.classList.toggle('is-hidden', !file || !file.untracked);
+        contentHeaderChanged.title = '';
         if (file) {
             contentHeaderFilename.textContent = file.name;
             contentHeaderPath.textContent = file.path;
@@ -1600,8 +1658,11 @@
                 // Nothing is watching this file — say so, since the whole
                 // promise of the app is that the page follows the file.
                 contentHeaderChanged.textContent = 'Not tracked — no live reload';
+            } else if (file.lastChange) {
+                contentHeaderChanged.textContent = (file.inbox ? 'Inbox · changed ' : 'Changed ') + relativeTime(file.lastChange);
+                contentHeaderChanged.title = new Date(file.lastChange).toLocaleString();
             } else {
-                contentHeaderChanged.textContent = file.lastChange ? 'Changed: ' + formatShortDateTime(file.lastChange) : '';
+                contentHeaderChanged.textContent = '';
             }
         } else {
             contentHeaderFilename.textContent = 'No file selected';
@@ -1627,6 +1688,7 @@
         pendingHash = opts.hash || '';
         syncUrl(path, opts.push !== false && path !== previousFile, opts.hash);
         renderFileList();
+        renderInboxList();
 
         if (file) {
             renderContent(file);
@@ -1636,7 +1698,7 @@
 
         // Watching is a property of tracked files; an untracked neighbour has
         // no watcher on the daemon side, so there is nothing to activate.
-        if (path !== previousFile && file && !file.untracked) {
+        if (path !== previousFile && file && !file.untracked && !file.inbox) {
             activateFile(path);
         }
 
@@ -1660,6 +1722,259 @@
             console.error('Failed to deactivate file:', err);
         });
     }
+
+    // ================================================================ Inbox ===
+    // A flat folder the daemon watches and pushes. Files land here, show up in
+    // their own tab, and leave by being moved to the OS trash — never by
+    // untracking, because a dump folder has nothing to untrack.
+
+    const INBOX_SORT_KEY = 'livemd:inboxSort';
+    try {
+        const savedSort = localStorage.getItem(INBOX_SORT_KEY);
+        if (savedSort === 'name' || savedSort === 'newest') inboxSortSelect.value = savedSort;
+    } catch (e) {
+        /* unavailable — the markup's default stands */
+    }
+    inboxSortSelect.addEventListener('change', () => {
+        try { localStorage.setItem(INBOX_SORT_KEY, inboxSortSelect.value); } catch (e) { /* session only */ }
+        renderInboxList();
+    });
+
+    const trashIcon =
+        '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"' +
+        ' stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<polyline points="3 6 5 6 21 6"/>' +
+        '<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>' +
+        '<path d="M10 11v6M14 11v6"/>' +
+        '<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>' +
+        '</svg>';
+
+    // inboxFileFor returns an inbox entry shaped like a tracked file, so the
+    // header, the renderer and live reload treat it the same way.
+    function inboxFileFor(path) {
+        const f = inboxFiles.find(x => pathsEqual(x.path, path));
+        if (!f) return null;
+        return { path: f.path, name: f.name, lastChange: f.modTime, size: f.size, inbox: true };
+    }
+
+    function applyInbox(data) {
+        const previous = new Map(inboxFiles.map(f => [f.path, f.modTime]));
+        inboxFiles = data.files || [];
+        inboxDir = data.dir || '';
+        // <bdi>: the button truncates from the left (direction: rtl), and
+        // without isolation the path's slashes would be reordered.
+        inboxPathBtn.innerHTML = '<bdi>' + escapeHtml(inboxDir || 'Inbox unavailable') + '</bdi>';
+        inboxPathBtn.disabled = !inboxDir;
+        renderInboxList();
+
+        if (!activeFile || !previous.has(activeFile)) return;
+        const now = inboxFileFor(activeFile);
+        if (!now) {
+            // Trashed here, or removed on disk: either way it is gone.
+            activeFile = null;
+            syncUrl(null, false);
+            contentOverride = true;
+            setViewKind('document');
+            content.innerHTML = `
+                <div class="welcome">
+                    <h1>No longer in the inbox</h1>
+                    <p>The file was moved to the trash or deleted. Your system's trash can restore it.</p>
+                </div>
+            `;
+            document.title = 'LiveMD';
+            updateContentHeader(null);
+            renderInboxList();
+            return;
+        }
+        if (now.lastChange !== previous.get(activeFile)) {
+            // Rewritten: drop the cached render and show the new one in place.
+            invalidateCache(activeFile);
+            if (!contentOverride) renderContent(now, true);
+        }
+        updateContentHeader(now);
+    }
+
+    function sortedInbox() {
+        const list = [...inboxFiles];
+        if (inboxSortSelect.value === 'newest') {
+            list.sort((a, b) => new Date(b.modTime) - new Date(a.modTime));
+        } else {
+            list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+        }
+        return list;
+    }
+
+    function renderInboxList() {
+        inboxCount.textContent = inboxFiles.length ? String(inboxFiles.length) : '';
+        inboxCount.classList.toggle('is-hidden', !inboxFiles.length);
+
+        const note = inboxNote ? `<div class="inbox-note">${escapeHtml(inboxNote.text)}</div>` : '';
+        if (!inboxFiles.length) {
+            inboxList.innerHTML = note + (inboxDir ? `
+                <div class="empty-state">
+                    <p>The inbox is empty.</p>
+                    <p>Anything saved to the folder above shows up here as it lands. Agents can find it with</p>
+                    <code>livemd inbox</code>
+                </div>
+            ` : `
+                <div class="empty-state">
+                    <p>The inbox could not be opened. The Logs tab says why.</p>
+                </div>
+            `);
+            return;
+        }
+
+        inboxList.innerHTML = note + sortedInbox().map(f => {
+            const iconClass = getFileIconClass(f.name);
+            const iconHtml = iconClass ? `<i class="${iconClass}"></i>` : '<span class="file-icon-default">&#9679;</span>';
+            const exact = new Date(f.modTime).toLocaleString();
+            return `
+                <div class="file-item inbox-file ${pathsEqual(f.path, activeFile) ? 'active' : ''}" data-path="${escapeHtml(f.path)}" tabindex="0">
+                    <span class="file-icon">${iconHtml}</span>
+                    <span class="file-name" title="${escapeHtml(f.path)}">${escapeHtml(f.name)}</span>
+                    <span class="inbox-meta" title="${escapeHtml(exact)}" data-time="${escapeHtml(f.modTime)}" data-size="${humanSize(f.size)}">${escapeHtml(relativeTime(f.modTime))} · ${humanSize(f.size)}</span>
+                    <button class="file-trash" data-path="${escapeHtml(f.path)}" title="Move to trash" aria-label="Move ${escapeHtml(f.name)} to trash">${trashIcon}</button>
+                </div>
+            `;
+        }).join('');
+
+        inboxList.querySelectorAll('.inbox-file').forEach(el => {
+            el.addEventListener('click', e => {
+                if (e.target.closest('.file-trash')) return;
+                selectFile(el.dataset.path);
+            });
+            el.addEventListener('keydown', e => {
+                if (e.target !== el) return;
+                if (e.key === 'Enter') selectFile(el.dataset.path);
+                if (e.key === 'Delete') trashInboxFile(el.dataset.path);
+            });
+        });
+        inboxList.querySelectorAll('.file-trash').forEach(btn => {
+            btn.addEventListener('click', e => {
+                e.stopPropagation();
+                trashInboxFile(btn.dataset.path);
+            });
+        });
+    }
+
+    function setInboxNote(text) {
+        if (inboxNote) clearTimeout(inboxNote.timer);
+        inboxNote = { text: text };
+        inboxNote.timer = setTimeout(() => {
+            inboxNote = null;
+            renderInboxList();
+        }, 2500);
+        renderInboxList();
+    }
+
+    function trashInboxFile(path) {
+        const name = baseName(path);
+        confirmAction({
+            title: 'Move “' + name + '” to the trash?',
+            body: 'It leaves the inbox folder. You can restore it from your system’s trash.',
+            ok: 'Move to trash',
+        }).then(yes => {
+            if (!yes) return;
+            fetch('/api/inbox/trash', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: path }),
+            })
+                .then(r => r.ok ? null : r.text().then(t => Promise.reject(new Error(t.trim() || 'HTTP ' + r.status))))
+                .then(() => setInboxNote('Moved ' + name + ' to the trash'))
+                .catch(err => setInboxNote('Could not move ' + name + ': ' + err.message));
+        });
+    }
+
+    inboxPathBtn.addEventListener('click', () => {
+        if (!inboxDir) return;
+        copyText(inboxDir)
+            .then(() => setInboxNote('Path copied'))
+            .catch(() => setInboxNote('Could not copy the path'));
+    });
+
+    // ======================================================= Confirm dialog ===
+    // An in-page dialog, not window.confirm(): the native one freezes the page
+    // (and anything automating it) and looks like nothing else in the app.
+    // Escape and a click outside cancel; the confirm button has focus, so Enter
+    // commits — the same keys a native dialog answers to.
+    let confirmResolve = null;
+    let confirmReturnFocus = null;
+
+    function confirmAction(opts) {
+        if (confirmResolve) confirmResolve(false); // one at a time
+        confirmTitle.textContent = opts.title;
+        confirmBody.textContent = opts.body || '';
+        confirmOk.textContent = opts.ok || 'OK';
+        confirmReturnFocus = document.activeElement;
+        confirmDialog.classList.remove('is-hidden');
+        confirmOk.focus();
+        return new Promise(resolve => { confirmResolve = resolve; });
+    }
+
+    function closeConfirm(answer) {
+        if (!confirmResolve) return;
+        const resolve = confirmResolve;
+        confirmResolve = null;
+        confirmDialog.classList.add('is-hidden');
+        if (confirmReturnFocus && document.contains(confirmReturnFocus)) confirmReturnFocus.focus();
+        resolve(answer);
+    }
+
+    confirmOk.addEventListener('click', () => closeConfirm(true));
+    confirmCancel.addEventListener('click', () => closeConfirm(false));
+    confirmDialog.addEventListener('mousedown', e => {
+        if (e.target === confirmDialog) closeConfirm(false);
+    });
+    document.addEventListener('keydown', e => {
+        if (!confirmResolve) return;
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeConfirm(false);
+        } else if (e.key === 'Tab') {
+            // Keep focus on the two buttons while the dialog is up.
+            e.preventDefault();
+            (document.activeElement === confirmOk ? confirmCancel : confirmOk).focus();
+        }
+    }, true);
+
+    // ===================================================== Sidebar collapse ===
+    // Hiding the sidebar gives the document the whole window. The choice is
+    // remembered, like Normal/Wide: it belongs to the window you read in.
+    const SIDEBAR_STORE_KEY = 'livemd:sidebarCollapsed';
+
+    function setSidebarCollapsed(collapsed) {
+        document.body.classList.toggle('sidebar-collapsed', collapsed);
+        try { localStorage.setItem(SIDEBAR_STORE_KEY, collapsed ? '1' : '0'); } catch (e) { /* session only */ }
+    }
+
+    try {
+        if (localStorage.getItem(SIDEBAR_STORE_KEY) === '1') document.body.classList.add('sidebar-collapsed');
+    } catch (e) {
+        /* unavailable — start open */
+    }
+
+    sidebarHideBtn.addEventListener('click', () => setSidebarCollapsed(true));
+    sidebarShowBtn.addEventListener('click', () => setSidebarCollapsed(false));
+    document.addEventListener('keydown', e => {
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'b') {
+            e.preventDefault();
+            setSidebarCollapsed(!document.body.classList.contains('sidebar-collapsed'));
+        }
+    });
+
+    // Relative times go stale while the page sits open; refresh them twice a
+    // minute. Only text changes — no layout moves, nothing scrolls.
+    setInterval(() => {
+        // Text only: a re-render would drop keyboard focus from the list.
+        inboxList.querySelectorAll('.inbox-meta').forEach(el => {
+            el.textContent = relativeTime(el.dataset.time) + ' · ' + el.dataset.size;
+        });
+        if (activeFile && !contentOverride) {
+            const file = fileFor(activeFile);
+            if (file) updateContentHeader(file);
+        }
+    }, 30000);
 
     function connect() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -1715,6 +2030,10 @@
                             updateContentHeader(null);
                         }
                     }
+                    break;
+
+                case 'inbox':
+                    applyInbox(data);
                     break;
 
                 case 'logs':
@@ -1813,5 +2132,6 @@
         resizer.classList.remove('dragging');
     });
 
+    showWelcome();
     connect();
 })();

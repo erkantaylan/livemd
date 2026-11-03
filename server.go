@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -64,6 +65,7 @@ type Hub struct {
 	files    map[string]*WatchedFile
 	watchers map[string]*Watcher
 	folders  map[string]*WatchedFolder
+	inbox    *inbox // nil until startInbox succeeds
 	renderer *Renderer
 	logger   *Logger
 }
@@ -87,6 +89,7 @@ func NewHub() *Hub {
 	go h.Run()
 
 	h.restoreFromState()
+	h.startInbox()
 	return h
 }
 
@@ -227,6 +230,9 @@ func (h *Hub) fileListMessage() []byte {
 }
 
 func (h *Hub) sendFileList(client *Client) {
+	// The inbox goes first: a deep link to an inbox file is resolved when the
+	// file list arrives, and has to find the inbox already known by then.
+	client.send <- h.inboxMessage()
 	client.send <- h.fileListMessage()
 
 	logs := h.logger.GetEntries()
@@ -768,6 +774,9 @@ func (h *Hub) Close() {
 	for _, w := range h.watchers {
 		w.Close()
 	}
+	if h.inbox != nil {
+		h.inbox.close()
+	}
 }
 
 // Server handles HTTP and WebSocket
@@ -841,6 +850,11 @@ func (s *Server) handleRaw(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		http.NotFound(w, r)
 		return
+	}
+
+	// ?download=1 is the Download link on files the page cannot show.
+	if r.URL.Query().Get("download") != "" {
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(actual)}))
 	}
 
 	// http.ServeFile handles range requests (important for video seeking) and
@@ -1122,6 +1136,30 @@ func (s *Server) routes() *http.ServeMux {
 		files, folders := s.hub.RemoveAll()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]int{"files": files, "folders": folders})
+	})
+	// The inbox: GET lists it, /trash moves one of its files to the OS trash.
+	mux.HandleFunc("/api/inbox", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(s.hub.inboxMessage())
+	})
+	mux.HandleFunc("/api/inbox/trash", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Path string `json:"path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+		if err := s.hub.TrashInboxFile(req.Path); err != nil {
+			s.hub.logger.Warn(err.Error())
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("/api/render", s.handleRender)
 	mux.HandleFunc("/api/logs", s.handleLogs)

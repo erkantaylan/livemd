@@ -309,7 +309,7 @@ func (r *Renderer) RenderMode(path string, mode renderMode) (string, error) {
 	}
 
 	if isBinary(content) {
-		return renderBinaryMessage(path), nil
+		return renderBinaryMessage(path, int64(len(content))), nil
 	}
 
 	if mode == modeAuto && isMarkdown(path) {
@@ -504,35 +504,40 @@ func renderTable(content []byte, tsv bool) string {
 // renderTooLargeMessage is shown instead of content for files over
 // maxFileSize. Media never lands here — it streams from /raw.
 func renderTooLargeMessage(path string, size int64) string {
-	return fmt.Sprintf(`<div style="text-align: center; padding: 40px; color: #666;">
-		<p style="font-size: 48px; margin-bottom: 16px;">&#128207;</p>
-		<p>File too large: %s</p>
-		<p style="color: #999; font-size: 14px; margin-top: 8px;">%.1f MB exceeds the %d MB display limit.</p>
-	</div>`,
-		template.HTMLEscapeString(filepath.Base(path)),
-		float64(size)/(1<<20),
-		maxFileSize>>20,
-	)
+	return filePlaceholder(path, size,
+		fmt.Sprintf("Too large to show here — the limit is %d MB.", maxFileSize>>20))
 }
 
-func renderBinaryMessage(path string) string {
-	ext := strings.ToLower(filepath.Ext(path))
-	name := filepath.Base(path)
+// renderBinaryMessage stands in for a file that is not text and not a format
+// the browser plays. It still names the file and offers it as a download, so
+// a .zip an agent dropped in the inbox is a file you can get at, not a dead end.
+func renderBinaryMessage(path string, size int64) string {
+	return filePlaceholder(path, size, "This file can't be previewed.")
+}
 
-	// Check if it's an image
-	imageExts := map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".svg": true, ".webp": true, ".ico": true}
-	if imageExts[ext] {
-		return `<div style="text-align: center; padding: 40px;">
-			<p style="color: #666; margin-bottom: 16px;">Image file: ` + name + `</p>
-			<p style="color: #999; font-size: 14px;">Image preview not supported</p>
-		</div>`
+func filePlaceholder(path string, size int64, why string) string {
+	name := template.HTMLEscapeString(filepath.Base(path))
+	href := template.HTMLEscapeString("/raw?path=" + url.QueryEscape(path) + "&download=1")
+	return fmt.Sprintf(`<div class="file-placeholder">
+	<p class="file-placeholder-name">%s</p>
+	<p class="file-placeholder-meta">%s</p>
+	<p>%s</p>
+	<p><a class="button" href="%s" download>Download</a></p>
+</div>`, name, humanSize(size), template.HTMLEscapeString(why), href)
+}
+
+// humanSize formats a byte count the way a file manager would: 512 B, 3.4 KB.
+func humanSize(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
 	}
-
-	return `<div style="text-align: center; padding: 40px; color: #666;">
-		<p style="font-size: 48px; margin-bottom: 16px;">📦</p>
-		<p>Binary file: ` + name + `</p>
-		<p style="color: #999; font-size: 14px; margin-top: 8px;">Cannot display binary content</p>
-	</div>`
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
 func isMarkdown(path string) bool {

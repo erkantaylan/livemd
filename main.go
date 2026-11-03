@@ -30,6 +30,7 @@ package main
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -61,6 +62,14 @@ var defaultExtensions = []string{
 	".txt",
 }
 
+// skillMarkdown is the agent skill, embedded so the binary always carries the
+// copy that matches it. `livemd skill` prints it and the agent installs it —
+// the agent can merge the machine-specific part of an existing copy, which a
+// blind file write from here could not.
+//
+//go:embed skills/livemd/SKILL.md
+var skillMarkdown string
+
 // Version is set at build time via -ldflags "-X main.Version=vX.Y.Z"
 var Version = "dev"
 
@@ -78,6 +87,8 @@ Usage:
   livemd remove <file.md>              Remove file from watch
   livemd clear                         Remove all watched files and folders
   livemd list                          List watched files
+  livemd inbox                         Print the inbox folder (files dropped there show in the Inbox tab)
+  livemd skill                         Print the livemd skill (SKILL.md) for an agent to install
   livemd stop                          Stop the server
   livemd port                          Show current port
   livemd port <number>                 Set default port
@@ -123,6 +134,10 @@ Examples:
 		cmdClear()
 	case "list":
 		cmdList()
+	case "inbox":
+		cmdInbox()
+	case "skill":
+		fmt.Print(skillMarkdown)
 	case "stop":
 		cmdStop()
 	case "port":

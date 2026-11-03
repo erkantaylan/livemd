@@ -95,6 +95,40 @@ livemd stop
 
 Open http://localhost:3000 in your browser.
 
+### The inbox
+
+One folder livemd always watches, for files you don't want to track one by one —
+typically reports, notes and other output from AI agents:
+
+```bash
+livemd inbox    # prints the folder (and creates it): ~/.livemd/inbox, or %APPDATA%\livemd\inbox
+```
+
+Anything saved there shows up in the sidebar's **Inbox** tab as soon as it lands
+and reloads as it is rewritten — no `livemd add`. The folder is flat (subfolders
+are ignored) and every file type is listed; files the browser can't show get a
+Download button. Sort by name or newest first.
+
+Inbox files never join the Files tree, and removing one is different from
+everywhere else: the bin button asks first, then moves the file to the system
+trash (freedesktop Trash on Linux, Recycle Bin on Windows), where it can be
+restored. Elsewhere, ✕ only stops tracking and the file stays on disk.
+
+### Agent skill
+
+livemd ships a skill that teaches coding agents (Claude Code and similar) how to
+use it, including the `livemd:inbox` instruction for dropping output in the
+inbox. The binary carries the copy that matches its version:
+
+```bash
+livemd skill    # print SKILL.md
+```
+
+Ask your agent to install it, e.g. *"run `livemd skill` and install it as the
+livemd skill"*. For Claude Code that means
+`~/.claude/skills/livemd/SKILL.md`; the agent can keep any machine-specific
+notes from an existing copy while updating the rest.
+
 ### Start at login
 
 `livemd start --detach` lasts until you log out or reboot. To have livemd start
@@ -152,7 +186,8 @@ livemd add docs/demo.md
 
 - **Persistent server** - Start once, add files anytime; state survives restart
 - **Followed folders** - `livemd add ./dir -r` registers everything in a directory; gitignored files are skipped automatically when the folder is in a git repo. Two checkboxes under the sidebar filter narrow the tree without changing what is tracked: **Respect .gitignore** (on by default) hides files git ignores, and **Only .md / .txt** hides everything else. A folder followed while Respect .gitignore is off picks up ignored files too, so turning it off has something to show. A Refresh button on each followed folder reconciles it with disk after a `git pull` or edit — picking up files added since and dropping ones that were deleted or renamed away
-- **Tree view sidebar** - Collapsible folder structure with a Refresh button on followed folders
+- **Tree view sidebar** - Collapsible folder structure with a Refresh button on followed folders. The whole sidebar hides with its button or Ctrl+B, and the choice is remembered
+- **Inbox** - A watched drop folder (`livemd inbox`) with its own tab: new files appear by themselves, and the bin button sends a file to the system trash after asking
 - **Filter the tree** - Type in the sidebar filter (or press `/` anywhere) to narrow the tree to files whose path matches every term; ↑/↓ move through the matches, Enter opens one, Esc clears
 - **Lazy watching** - Files are registered but only actively watched when selected, and content is rendered on demand: the daemon holds no HTML, so tracking a 40 MB file costs nothing until you open it
 - **Many viewers** - Markdown (GFM + mermaid + KaTeX math), 50+ syntax-highlighted code languages, images, PDFs, audio, video, CSV/TSV as tables

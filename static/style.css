@@ -25,6 +25,11 @@
     --success: #3f7a4f;
     --warn: #8a6516;
 
+    /* Overlay — the confirm dialog's backdrop and lift, both ink at low alpha
+       so they darken the warm paper instead of greying it. */
+    --scrim: rgba(28, 26, 23, 0.28);
+    --shadow-lg: 0 12px 32px rgba(28, 26, 23, 0.18), 0 2px 6px rgba(28, 26, 23, 0.08);
+
     /* Space — 4px base */
     --s-1: 4px;
     --s-2: 8px;
@@ -83,6 +88,41 @@ body {
 }
 
 /* ============================================================ Sidebar ==== */
+
+/* Collapsed, the sidebar and its resizer leave the layout entirely and the
+   document takes the window; a button at the start of the content header
+   brings it back (Ctrl+B toggles either way). */
+body.sidebar-collapsed .sidebar,
+body.sidebar-collapsed .sidebar-resizer {
+    display: none;
+}
+
+/* Specific enough to beat .icon-btn's display, which comes later. */
+body:not(.sidebar-collapsed) .sidebar-show-btn {
+    display: none;
+}
+
+/* A quiet square icon button: no surface until hovered, 24px hit target. */
+.icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--ink-muted);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.icon-btn:hover {
+    background: var(--sunken);
+    color: var(--ink);
+}
 
 .sidebar {
     width: 260px;
@@ -209,6 +249,21 @@ body.sidebar-resizing {
     color: var(--ink);
 }
 
+.tab-count {
+    display: inline-block;
+    min-width: 16px;
+    margin-left: var(--s-1);
+    padding: 0 var(--s-1);
+    border-radius: var(--r-sm);
+    background: var(--sunken);
+    color: var(--ink-muted);
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 16px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
 .sidebar-tabs li.is-active a {
     color: var(--ink);
     font-weight: 550;
@@ -237,6 +292,11 @@ body.sidebar-resizing {
     text-align: center;
     color: var(--ink-faint);
     font-size: 12px;
+}
+
+.empty-state p {
+    margin: 0 0 var(--s-1);
+    line-height: 1.5;
 }
 
 .empty-state code {
@@ -285,6 +345,25 @@ body.sidebar-resizing {
 .button.is-danger:hover {
     background: var(--danger-weak);
     color: var(--danger);
+}
+
+/* The committing button of a destructive dialog: filled, because by now the
+   choice has been asked for and the answer should be unmistakable. */
+.button.is-danger-solid {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: #fff;
+}
+
+.button.is-danger-solid:hover {
+    background: var(--danger);
+    filter: brightness(0.92);
+    color: #fff;
+}
+
+a.button {
+    display: inline-block;
+    text-decoration: none;
 }
 
 .input {
@@ -413,6 +492,84 @@ body.sidebar-resizing {
     background: var(--danger-weak);
     border-color: var(--danger-rule);
     color: var(--danger);
+}
+
+/* ============================================================== Inbox ==== */
+
+.inbox-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-2);
+    border-bottom: 1px solid var(--rule);
+}
+
+/* The folder's path, as a button that copies it. Long paths give way at the
+   start, like a compacted folder chain: the end names the folder. */
+.inbox-path {
+    flex: 1;
+    min-width: 0;
+    min-height: 28px;
+    padding: 0 var(--s-2);
+    border: 1px solid transparent;
+    border-radius: var(--r-md);
+    background: transparent;
+    color: var(--ink-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    direction: rtl;
+    cursor: copy;
+}
+
+.inbox-path bdi {
+    unicode-bidi: isolate;
+}
+
+.inbox-path:hover {
+    background: var(--raised);
+    border-color: var(--rule-strong);
+    color: var(--ink);
+}
+
+.inbox-path:disabled {
+    cursor: default;
+    color: var(--danger);
+}
+
+.select {
+    flex-shrink: 0;
+    min-height: 28px;
+    padding: 0 var(--s-2);
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--ink-muted);
+    background: var(--raised);
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--r-md);
+    cursor: pointer;
+}
+
+.select:hover {
+    color: var(--ink);
+}
+
+.inbox-meta {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* Feedback from the last action in the tab, above the list it changed. */
+.inbox-note {
+    padding: var(--s-1) var(--s-3) var(--s-2);
+    font-size: 11px;
+    color: var(--ink-muted);
 }
 
 /* ========================================================== File tree ==== */
@@ -577,6 +734,7 @@ body.sidebar-resizing {
    Both keep their space at all times (opacity, not display), so revealing one
    never reflows the row. --- */
 .file-remove,
+.file-trash,
 .folder-remove,
 .folder-refresh {
     flex-shrink: 0;
@@ -597,6 +755,7 @@ body.sidebar-resizing {
 }
 
 .file-remove,
+.file-trash,
 .folder-remove {
     color: var(--ink-faint);
 }
@@ -631,8 +790,10 @@ body.sidebar-resizing {
 
 .tree-folder:hover .folder-remove,
 .file-item:hover .file-remove,
+.file-item:hover .file-trash,
 .tree-folder:focus-within .folder-remove,
-.file-item:focus-within .file-remove {
+.file-item:focus-within .file-remove,
+.file-item:focus-within .file-trash {
     opacity: 1;
 }
 
@@ -643,6 +804,7 @@ body.sidebar-resizing {
 }
 
 .file-remove:hover,
+.file-trash:hover,
 .folder-remove:hover {
     background: var(--danger-weak);
     color: var(--danger);
@@ -1307,6 +1469,90 @@ article.content:has(> .html-preview) {
 }
 
 /* ============================================================ Welcome ==== */
+
+.welcome-steps {
+    margin: 0 0 var(--s-4);
+    padding-left: var(--s-5);
+}
+
+.welcome-steps li {
+    margin-bottom: var(--s-2);
+}
+
+.welcome-hint {
+    color: var(--ink-faint);
+    font-size: 0.875rem;
+}
+
+/* Stands in for a file the page cannot show: what it is, and a way to get it. */
+.file-placeholder {
+    padding: var(--s-6) var(--s-4);
+    text-align: center;
+    color: var(--ink-muted);
+}
+
+.file-placeholder p {
+    margin: 0 0 var(--s-2);
+}
+
+.file-placeholder-name {
+    font-weight: 600;
+    color: var(--ink);
+    overflow-wrap: anywhere;
+}
+
+.file-placeholder-meta {
+    font-size: 12px;
+    color: var(--ink-faint);
+}
+
+.file-placeholder .button {
+    margin-top: var(--s-2);
+}
+
+/* ===================================================== Confirm dialog ==== */
+
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--s-4);
+    background: var(--scrim);
+}
+
+.modal {
+    width: 100%;
+    max-width: 380px;
+    padding: var(--s-5);
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-lg);
+}
+
+.modal-title {
+    margin: 0 0 var(--s-2);
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--ink);
+    overflow-wrap: anywhere;
+}
+
+.modal-body {
+    margin: 0 0 var(--s-5);
+    font-size: 13px;
+    color: var(--ink-muted);
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--s-2);
+}
 
 .welcome {
     padding: var(--s-6) 0;
