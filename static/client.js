@@ -329,11 +329,21 @@
                 return;
             }
             if (!res.folder) {
-                pendingUrlFile = path;
                 pendingUrlPush = true;
-                resolvePendingUrlFile.tried = false;
+                selectOnceTracked(path);
             }
         });
+    }
+
+    // selectOnceTracked opens a path the page just asked the daemon to track.
+    // Usually the next file-list broadcast brings it, but the daemon sends
+    // that broadcast before it answers the add request, so the list can
+    // already hold the file by the time this runs. Waiting for another
+    // broadcast then waits forever, leaving the page on the welcome screen.
+    function selectOnceTracked(path) {
+        pendingUrlFile = path;
+        resolvePendingUrlFile.tried = false;
+        if (files.some(f => pathsEqual(f.path, path) && !f.deleted)) resolvePendingUrlFile();
     }
 
     // fileFor resolves a path to something renderable: a tracked file, or the
@@ -536,10 +546,7 @@
                     // A file comes back through the branch above once the
                     // server broadcasts it. A directory has nothing to select,
                     // so the default first-file pick takes over.
-                    if (!res.folder) {
-                        pendingUrlFile = target;
-                        resolvePendingUrlFile.tried = false;
-                    }
+                    if (!res.folder) selectOnceTracked(target);
                 }),
             });
         }
@@ -588,7 +595,7 @@
             addPathBtn.disabled = false;
             if (res.ok) {
                 clearOmnibox();
-                if (!res.folder) pendingUrlFile = pendingUrlFile || path;
+                if (!res.folder && !pendingUrlFile) selectOnceTracked(path);
             } else {
                 showAddPathError(res.msg || 'Could not track this path.');
             }
@@ -1515,6 +1522,7 @@
             setViewKind(view);
             content.innerHTML = html;
             if (mode !== 'raw') enhanceContent(content);
+            if (view === 'document') addCodeCopyButtons(content);
             content.scrollTop = scrollY;
             updateSubheader(file);
             updateViewToggle(file);
@@ -1578,6 +1586,50 @@
         if (!marker) return null;
         const total = parseInt(marker.dataset.total, 10);
         return isNaN(total) ? null : total;
+    }
+
+    // --- Copy buttons on the code blocks of a rendered document. Each block
+    // is wrapped so the button stays pinned to its corner while the code
+    // scrolls sideways under it. The text comes from the DOM, which is the
+    // source exactly: markdown fences render without line numbers. ---
+    const copyIcon =
+        '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.25"' +
+        ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>';
+    const copiedIcon =
+        '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"' +
+        ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="5 12 10 17 19 7"/></svg>';
+
+    function addCodeCopyButtons(root) {
+        root.querySelectorAll('pre').forEach(pre => {
+            if (pre.parentElement.classList.contains('code-block')) return;
+            const wrap = document.createElement('div');
+            wrap.className = 'code-block';
+            pre.parentNode.insertBefore(wrap, pre);
+            wrap.appendChild(pre);
+
+            const btn = document.createElement('button');
+            btn.className = 'code-copy';
+            btn.type = 'button';
+            btn.title = 'Copy code';
+            btn.setAttribute('aria-label', 'Copy code');
+            btn.innerHTML = copyIcon;
+            btn.addEventListener('click', () => {
+                const code = pre.querySelector('code') || pre;
+                copyText(code.textContent.replace(/\n$/, '')).then(() => {
+                    btn.innerHTML = copiedIcon;
+                    btn.classList.add('is-copied');
+                    btn.title = 'Copied';
+                    clearTimeout(btn._reset);
+                    btn._reset = setTimeout(() => {
+                        btn.innerHTML = copyIcon;
+                        btn.classList.remove('is-copied');
+                        btn.title = 'Copy code';
+                    }, 1500);
+                }).catch(() => { btn.title = 'Could not copy'; });
+            });
+            wrap.appendChild(btn);
+        });
     }
 
     // --- Copy button: fetches the raw file and puts it on the clipboard.

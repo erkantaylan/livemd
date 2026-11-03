@@ -226,6 +226,8 @@ be overridden from the stylesheet without `!important`. Matching chroma's white
 keeps a fence with no language tag — which chroma never touches — looking like
 every other code block. Change chroma's style and this token has to follow.
 
+Every code block in a rendered document has a copy button in its top-right corner. It follows the hover-revealed rules (opacity, not display, and visible on focus), and it is always visible on touch screens, where nothing hovers. The block is wrapped so the button stays in the corner while the code scrolls sideways underneath. It copies the code's text exactly, without the trailing newline. When copied, the icon becomes a green check for 1.5 seconds. Whole-file source views don't get one, because the subheader's Copy already covers them.
+
 ### The changelog
 
 Release notes are markdown and are rendered as markdown, by the daemon rather

@@ -1657,6 +1657,61 @@ article.content pre code {
     font-size: inherit;
 }
 
+/* A code block with its copy button. The wrapper carries the block's bottom
+   margin so the button can sit in the corner of the pre while the pre's own
+   content scrolls. The button follows the hover-revealed rules: opacity, not
+   display, and visible on focus too; on touch screens, where nothing hovers,
+   it is always there. */
+.code-block {
+    position: relative;
+    margin-bottom: var(--s-4);
+}
+
+.code-block > pre {
+    margin-bottom: 0;
+}
+
+.code-copy {
+    position: absolute;
+    top: var(--s-2);
+    right: var(--s-2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--r-md);
+    background: var(--raised);
+    color: var(--ink-muted);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.code-block:hover .code-copy,
+.code-block:focus-within .code-copy,
+.code-copy.is-copied {
+    opacity: 1;
+}
+
+@media (hover: none) {
+    .code-copy {
+        opacity: 1;
+    }
+}
+
+.code-copy:hover {
+    background: var(--sunken);
+    color: var(--ink);
+}
+
+.code-copy.is-copied {
+    border-color: var(--success);
+    color: var(--success);
+}
+
 article.content table {
     border-collapse: collapse;
     margin-bottom: var(--s-4);
