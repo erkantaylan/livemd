@@ -43,8 +43,9 @@ livemd install                 # self-update from the latest GitHub release
 ## Standard flow
 
 1. `livemd list` — if it errors, the daemon is not running; `livemd start --detach`
-   (from v1.0.0 it starts the systemd unit instead when one is installed). The
-   output also tells you the active port; do not assume 3000.
+   (from v1.0.0 it starts the systemd unit instead when one is installed). It
+   lists tracked paths only, not the port: run `livemd port` for that, and never
+   assume 3000.
 2. `livemd add <path>` for the file(s) the user wants to see.
 3. Hand back a deep link in one line: the port, then the file's own absolute
    path — `http://localhost:3000/home/me/notes.md` (append `?view=raw` when the
