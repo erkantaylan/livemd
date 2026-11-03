@@ -263,9 +263,31 @@ Removing works differently here, and the control shows it. In the tree, ✕ mean
 
 ### Confirming a destructive action
 
-Clear all arms on the first click and fires on a second. That works there because it only changes livemd's own list. Moving a file to the trash changes the disk, so it asks in a dialog instead: a title naming the file, one line saying where it goes and that it can be restored, Cancel, and a filled `--danger` button labelled with the action ("Move to trash", never "OK").
+Moving a file to the trash and clearing the watch list both ask first, in the same dialog. It has a title naming what goes, one line with the consequence (restorable from the system trash; nothing deleted from disk, with the exact counts), Cancel, and a filled `--danger` button labelled with the action ("Move to trash", "Clear list", never "OK").
+
+Clear all used to arm on the first click and fire on a second within three seconds. It was replaced because a button that changes its own label can't say *what* it is about to drop, and three seconds is either too short to read or long enough to forget.
 
 The dialog is drawn in the page, never `window.confirm()`. The native one blocks the page, freezes anything automating it, and looks like nothing else here. Focus starts on the confirm button, so Enter commits. Escape or a click on the scrim cancels, and Tab stays inside the dialog.
+
+### The omnibox
+
+The Files tab has one field where it used to have two (a path box with an Add button, and a filter). Typing filters the tree. Pasting something that is plainly an absolute path (`/…`, `~/…`, `C:\…`, `\\server\…`) changes the field's job: the search icon becomes a plus, the text goes monospace, the filter steps aside, and a row under the field spells out what Enter will do, "Track ~/docs ↵". Only absolute paths switch it, because a relative path means nothing to the daemon and `src/http` has to stay a filter. The daemon expands a leading `~`.
+
+The two view options are chips under the field, not checkboxes. They narrow the tree the way the filter does, so they sit with it, and a pressed chip (accent-weak fill, a check mark) reads as state without a checkbox's chrome. The match count sits at the end of the same row, where there is room for it.
+
+Shortcuts are drawn as key caps (`/` in the empty field, `↵` on the track row), not typed into placeholder text, where they read as part of the sentence.
+
+### The tree's footer
+
+Under the tree, a quiet status line: "40 files · 3 folders" and **Clear list…**, which only turns red on hover. A clear-everything control belongs out of the reading flow, and next to the counts it would clear. Files deleted from disk get one slim danger line above the tree saying how many, with **Remove** beside it.
+
+### Version and updates
+
+The footer shows the running version in mono, as a link to it on GitHub: its release page for a release build, or the repository for a development build (`v2.4.1-3-g…`), which has no release of its own. The check runs whenever the page connects. Being up to date says nothing: no "Up to date" label, no check mark, just the version with the last check in its tooltip. "Couldn't check" is the retry button. Words appear only when there is news: "↑ vX available" (accent) or "Couldn't check". Clicking the available badge opens a small panel with `livemd install`, Copy, What's new (the Changelog tab) and Later. The panel only ever opens when asked. An update arriving while you read adds a few words in the corner and nothing else.
+
+### Connection state
+
+A green dot in the sidebar header while the page is live, and nothing to read. Losing the connection turns it red and adds the word "offline", because only then is there something to know. The tooltip says what the state means either way.
 
 ### Hiding the sidebar
 

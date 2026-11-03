@@ -67,6 +67,21 @@
         }
     }
 
+    // toggleChip makes a <button aria-pressed> behave like a checkbox to the
+    // rest of this file: .checked reads and writes the pressed state, and a
+    // click flips it and fires 'change'.
+    function toggleChip(el) {
+        Object.defineProperty(el, 'checked', {
+            get() { return el.getAttribute('aria-pressed') === 'true'; },
+            set(v) { el.setAttribute('aria-pressed', v ? 'true' : 'false'); },
+        });
+        el.addEventListener('click', () => {
+            el.checked = !el.checked;
+            el.dispatchEvent(new Event('change'));
+        });
+        return el;
+    }
+
     const fileList = document.getElementById('file-list');
     const filterInput = document.getElementById('filter-input');
     const filterCount = document.getElementById('filter-count');
@@ -79,9 +94,18 @@
     const clearBar = document.getElementById('clear-bar');
     const clearAllBtn = document.getElementById('clear-all-btn');
     const checkUpdateBtn = document.getElementById('check-update-btn');
-    const updateBanner = document.getElementById('update-banner');
-    const updateText = document.getElementById('update-text');
+    const updateStatusText = document.getElementById('update-status-text');
+    const updatePanel = document.getElementById('update-panel');
+    const updateVersion = document.getElementById('update-version');
+    const updateCopyBtn = document.getElementById('update-copy-btn');
+    const updateNotesBtn = document.getElementById('update-notes-btn');
+    const updateLaterBtn = document.getElementById('update-later-btn');
     const versionLabel = document.getElementById('version-label');
+    const deletedText = document.getElementById('deleted-text');
+    const listSummary = document.getElementById('list-summary');
+    const omnibox = document.getElementById('omnibox');
+    const omniboxClear = document.getElementById('omnibox-clear');
+    const omniboxTrackPath = document.getElementById('omnibox-track-path');
     const contentHeaderFilename = document.getElementById('content-header-filename');
     const contentHeaderPath = document.getElementById('content-header-path');
     const contentHeaderChanged = document.getElementById('content-header-changed');
@@ -92,10 +116,9 @@
     const widthToggle = document.getElementById('width-toggle');
     const widthNormalBtn = document.getElementById('width-normal-btn');
     const widthWideBtn = document.getElementById('width-wide-btn');
-    const addPathInput = document.getElementById('add-path-input');
     const addPathBtn = document.getElementById('add-path-btn');
-    const optGitignore = document.getElementById('opt-gitignore');
-    const optDocsOnly = document.getElementById('opt-docs-only');
+    const optGitignore = toggleChip(document.getElementById('opt-gitignore'));
+    const optDocsOnly = toggleChip(document.getElementById('opt-docs-only'));
     const addPathError = document.getElementById('add-path-error');
     const copyBtn = document.getElementById('copy-btn');
     const contentSubheader = document.getElementById('content-subheader');
@@ -528,23 +551,55 @@
         addPathError.classList.remove('is-hidden');
     }
 
-    function submitAddPath() {
-        const path = addPathInput.value.trim();
-        if (!path) return;
+    // --- The omnibox: one field that filters the tree, and tracks a path when
+    // what is in it is plainly one. Only absolute paths count — /…, ~/…, C:\…,
+    // \\server\… — because a relative path means nothing to the daemon, and
+    // "src/http" has to stay a filter. ---
+    const absPathRe = /^(\/|~([\\/]|$)|[A-Za-z]:[\\/]|\\\\)/;
+
+    function looksLikePath(v) {
+        return absPathRe.test(v);
+    }
+
+    function updateOmnibox() {
+        const value = filterInput.value.trim();
+        const isPath = looksLikePath(value);
+        omnibox.classList.toggle('is-path', isPath);
+        omnibox.classList.toggle('has-value', filterInput.value !== '');
+        addPathBtn.classList.toggle('is-hidden', !isPath);
+        if (isPath) omniboxTrackPath.innerHTML = '<bdi>' + escapeHtml(value) + '</bdi>';
         addPathError.classList.add('is-hidden');
+        // A path is not a filter: matching it against the tree would only
+        // ever say "no files match".
+        setFilter(isPath ? '' : filterInput.value);
+    }
+
+    function clearOmnibox() {
+        filterInput.value = '';
+        updateOmnibox();
+    }
+
+    function submitAddPath() {
+        const path = filterInput.value.trim();
+        if (!looksLikePath(path)) return;
+        addPathError.classList.add('is-hidden');
+        addPathBtn.disabled = true;
         addPath(path).then(res => {
+            addPathBtn.disabled = false;
             if (res.ok) {
-                addPathInput.value = '';
+                clearOmnibox();
                 if (!res.folder) pendingUrlFile = pendingUrlFile || path;
             } else {
-                showAddPathError(res.msg || 'Failed to add path');
+                showAddPathError(res.msg || 'Could not track this path.');
             }
         });
     }
 
     addPathBtn.addEventListener('click', submitAddPath);
-    addPathInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter') submitAddPath();
+    omniboxClear.addEventListener('click', e => {
+        e.preventDefault(); // inside the <label>: don't bounce focus around
+        clearOmnibox();
+        filterInput.focus();
     });
 
     // Tab switching. Files and Inbox are where you work, so the one you were
@@ -578,54 +633,101 @@
         });
     });
 
-    // Clear the whole watch list. It wipes every file and folder at once, so it
-    // arms on the first click and only fires on a second within a few seconds —
-    // the same "commit once" idea as the refresh note, not a blocking dialog.
-    let clearArmTimer = null;
-    function disarmClear() {
-        if (clearArmTimer) { clearTimeout(clearArmTimer); clearArmTimer = null; }
-        clearAllBtn.classList.remove('is-armed');
-        clearAllBtn.textContent = 'Clear all';
-    }
+    // Clear the whole watch list. The dialog says exactly what goes — and that
+    // nothing on disk does — which a two-click arm could never tell you.
     clearAllBtn.addEventListener('click', () => {
-        if (clearAllBtn.classList.contains('is-armed')) {
-            disarmClear();
+        const what = [plural(files.length, 'file'), folders.length ? plural(folders.length, 'followed folder') : '']
+            .filter(Boolean).join(' and ');
+        confirmAction({
+            title: 'Clear the watch list?',
+            body: 'Stops tracking ' + what + '. Nothing is deleted from disk; add them back any time.',
+            ok: 'Clear list',
+        }).then(yes => {
+            if (!yes) return;
             fetch('/api/clear', { method: 'POST' }).catch(err => {
                 console.error('Failed to clear watch list:', err);
             });
-            return;
-        }
-        clearAllBtn.classList.add('is-armed');
-        clearAllBtn.textContent = 'Clear all?';
-        clearArmTimer = setTimeout(disarmClear, 3000);
+        });
     });
 
-    // Check for updates button
+    function plural(n, noun) {
+        return n + ' ' + noun + (n === 1 ? '' : 's');
+    }
+
+    // --- Version and updates. The status is a button that is also the
+    // answer: "Up to date", "Update available", "Couldn't check". It never
+    // opens anything on its own — the panel appears only when asked, because
+    // nothing in the chrome should move while you read. ---
+    let updateInfo = null;
+    let updateDismissed = false;
+
+    // Only news gets words: an available update, or a check that failed.
+    // Up to date shows as the version alone, which links to it on GitHub.
+    const REPO_URL = 'https://github.com/erkantaylan/livemd';
+
+    function setUpdateStatus(state, text, title) {
+        checkUpdateBtn.dataset.state = state;
+        updateStatusText.textContent = text;
+        checkUpdateBtn.title = title;
+        checkUpdateBtn.classList.toggle('is-hidden', state !== 'available' && state !== 'error');
+    }
+
+    // A release build links to its release page. A dev build (v2.4.1-3-g…,
+    // or "dev") has no release of its own, so it links to the repository.
+    function setVersion(version, note) {
+        const isRelease = /^v\d+\.\d+\.\d+$/.test(version);
+        versionLabel.textContent = version;
+        versionLabel.href = isRelease ? REPO_URL + '/releases/tag/' + encodeURIComponent(version) : REPO_URL;
+        versionLabel.title = (isRelease ? 'Release notes for ' + version : 'livemd on GitHub — ' + version + ' is a development build') +
+            (note ? '\n' + note : '');
+    }
+
     checkUpdateBtn.addEventListener('click', () => {
-        checkUpdateBtn.textContent = 'Checking...';
-        checkUpdateBtn.disabled = true;
+        if (checkUpdateBtn.dataset.state === 'available') {
+            updatePanel.classList.toggle('is-hidden');
+            return;
+        }
         checkForUpdates();
     });
 
+
+    updateCopyBtn.addEventListener('click', () => {
+        copyText('livemd install').then(() => {
+            updateCopyBtn.textContent = 'Copied';
+            setTimeout(() => { updateCopyBtn.textContent = 'Copy'; }, 1500);
+        }).catch(() => {});
+    });
+    updateNotesBtn.addEventListener('click', () => {
+        setSidebarCollapsed(false);
+        showTab('changelog');
+    });
+    updateLaterBtn.addEventListener('click', () => {
+        updateDismissed = true;
+        updatePanel.classList.add('is-hidden');
+    });
+
     function checkForUpdates() {
+        if (checkUpdateBtn.dataset.state === 'checking' && updateInfo) return;
+        setUpdateStatus('checking', 'Checking…', 'Asking GitHub for the latest release');
         fetch('/api/version')
             .then(r => r.json())
             .then(info => {
-                versionLabel.textContent = 'livemd ' + info.current;
-                checkUpdateBtn.textContent = 'Check updates';
-                checkUpdateBtn.disabled = false;
-
-                if (info.updateAvailable) {
-                    updateText.innerHTML = 'Update available: <a href="' + escapeHtml(info.latestUrl) + '" target="_blank">' + escapeHtml(info.latest) + '</a>';
-                    updateBanner.classList.remove('is-hidden');
+                updateInfo = info;
+                const when = 'Checked ' + new Date(info.checkedAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                setVersion(info.current, info.error ? '' : (info.updateAvailable ? info.latest + ' is available' : 'Up to date — ' + when.toLowerCase()));
+                if (info.error) {
+                    setUpdateStatus('error', 'Couldn’t check', when + ' — GitHub did not answer. Click to try again.');
+                } else if (info.updateAvailable) {
+                    updateVersion.textContent = info.latest;
+                    setUpdateStatus('available', info.latest + ' available', when + ' — click for how to update');
                 } else {
-                    updateBanner.classList.add('is-hidden');
+                    updatePanel.classList.add('is-hidden');
+                    setUpdateStatus('current', '', '');
                 }
             })
             .catch(err => {
                 console.error('Failed to check for updates:', err);
-                checkUpdateBtn.textContent = 'Check updates';
-                checkUpdateBtn.disabled = false;
+                setUpdateStatus('error', 'Couldn’t check', 'The daemon did not answer. Click to try again.');
             });
     }
 
@@ -1028,19 +1130,23 @@
         rows.forEach((el, i) => el.classList.toggle('is-cursor', i === filterCursor));
     }
 
-    filterInput.addEventListener('input', () => setFilter(filterInput.value));
+    filterInput.addEventListener('input', updateOmnibox);
     filterInput.addEventListener('keydown', e => {
-        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        const isPath = omnibox.classList.contains('is-path');
+        if (!isPath && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
             e.preventDefault();
             moveFilterCursor(e.key === 'ArrowDown' ? 1 : -1);
         } else if (e.key === 'Enter') {
+            if (isPath) {
+                submitAddPath();
+                return;
+            }
             const row = filterRows()[filterCursor];
             if (row) selectFile(row.dataset.path);
         } else if (e.key === 'Escape') {
             // First Escape clears, the second gives the keyboard back.
             if (filterInput.value) {
-                filterInput.value = '';
-                setFilter('');
+                clearOmnibox();
             } else {
                 filterInput.blur();
             }
@@ -1076,21 +1182,20 @@
     }
 
     function updateDeletedBar() {
-        const hasDeleted = files.some(f => f.deleted);
-        if (hasDeleted) {
-            deletedBar.classList.remove('is-hidden');
-        } else {
-            deletedBar.classList.add('is-hidden');
-        }
+        const deleted = files.filter(f => f.deleted).length;
+        deletedBar.classList.toggle('is-hidden', !deleted);
+        if (deleted) deletedText.textContent = (deleted === 1 ? '1 file was' : deleted + ' files were') + ' deleted from disk';
     }
 
-    // The clear-all control only appears when there is something to clear, and
-    // resets itself the moment the list empties out (its own click, or the last
-    // file removed some other way) so it never sits armed over an empty tree.
+    // The footer under the tree: what is tracked, and the one control that
+    // clears it. Only there when there is something to clear.
     function updateClearBar() {
         const hasAny = files.length > 0 || folders.length > 0;
         clearBar.classList.toggle('is-hidden', !hasAny);
-        if (!hasAny) disarmClear();
+        if (!hasAny) return;
+        const parts = [plural(files.length, 'file')];
+        if (folders.length) parts.push(plural(folders.length, 'folder'));
+        listSummary.textContent = parts.join(' · ');
     }
 
     function renderFileList() {
@@ -1131,7 +1236,7 @@
                 fileList.innerHTML = `
                     <div class="empty-state">
                         <p>No files match.</p>
-                        <p>Esc clears the filter${optDocsOnly.checked || optGitignore.checked ? '; the options under it hide some files too' : ''}.</p>
+                        <p>Esc clears the filter${optDocsOnly.checked || optGitignore.checked ? '; the chips under it hide some files too' : ''}.</p>
                     </div>
                 `;
                 updateDeletedBar();
@@ -1984,13 +2089,23 @@
         }
     }, 30000);
 
+    // Connection state: a green dot while live, nothing to read. Only a lost
+    // connection earns a word, because only then is there something to know.
+    function setConnStatus(state) {
+        const live = state === 'live';
+        status.className = 'conn-status ' + (live ? 'is-live' : 'is-offline');
+        status.querySelector('.conn-text').textContent = live ? '' : 'offline';
+        const label = live ? 'Live — pages reload as files change' : 'Disconnected — reconnecting…';
+        status.title = label;
+        status.setAttribute('aria-label', label);
+    }
+
     function connect() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
         ws.onopen = function() {
-            status.textContent = 'live';
-            status.className = 'tag is-success';
+            setConnStatus('live');
             reconnectDelay = 1000;
             // Check version on connect
             checkForUpdates();
@@ -2097,8 +2212,7 @@
         };
 
         ws.onclose = function() {
-            status.textContent = 'disconnected';
-            status.className = 'tag is-danger';
+            setConnStatus('offline');
 
             setTimeout(function() {
                 reconnectDelay = Math.min(reconnectDelay * 1.5, maxReconnectDelay);

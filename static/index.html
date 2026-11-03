@@ -19,10 +19,7 @@
         <div class="sidebar-header">
             <span class="logo">LiveMD</span>
             <div class="header-right">
-                <a href="https://github.com/erkantaylan/livemd" target="_blank" class="github-link" title="GitHub">
-                    <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-                </a>
-                <span class="tag" id="status">connecting…</span>
+                <span class="conn-status" id="status" role="status" title="Connecting…" aria-label="Connecting"><span class="conn-text"></span></span>
             </div>
         </div>
         <div class="sidebar-tabs">
@@ -34,21 +31,38 @@
             </ul>
         </div>
         <div class="tab-content" id="files-tab">
-            <div class="add-path-bar">
-                <input class="input" id="add-path-input" placeholder="Paste a file or folder path" spellcheck="false" title="A file is tracked; a folder is followed, with everything in it">
-                <button class="button" id="add-path-btn" title="Track this path">Add</button>
+            <!-- One field for both jobs. Typing filters the tree; something that
+                 is plainly an absolute path (/…, ~/…, C:\…) offers to track it
+                 instead. See design.md, "The omnibox". -->
+            <div class="omnibox" id="omnibox">
+                <label class="omnibox-field">
+                    <svg class="omnibox-icon icon-search" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
+                    <svg class="omnibox-icon icon-track" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    <input class="omnibox-input" id="filter-input" placeholder="Filter, or paste a path to track" spellcheck="false" autocomplete="off" aria-label="Filter files, or paste a path to track" title="Type to filter — ↑↓ to move, Enter to open, Esc to clear. Paste an absolute path to track it.">
+                    <kbd class="omnibox-kbd" title="Press / anywhere to jump here">/</kbd>
+                    <button class="omnibox-clear" id="omnibox-clear" title="Clear (Esc)" aria-label="Clear">
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+                    </button>
+                </label>
+                <button class="omnibox-track is-hidden" id="add-path-btn" title="Track this path — a folder is followed with everything in it">
+                    <span class="omnibox-track-label">Track</span>
+                    <span class="omnibox-track-path" id="omnibox-track-path"></span>
+                    <kbd class="omnibox-kbd">↵</kbd>
+                </button>
+                <div class="add-path-error is-hidden" id="add-path-error"></div>
+                <div class="omnibox-meta">
+                    <button class="chip" id="opt-gitignore" aria-pressed="true" title="Hide files git ignores. Folders followed while this is off pick them up too.">
+                        <svg class="chip-check" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="5 12 10 17 19 7"/></svg>Hide gitignored
+                    </button>
+                    <button class="chip" id="opt-docs-only" aria-pressed="false" title="Show only .md, .markdown and .txt files">
+                        <svg class="chip-check" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="5 12 10 17 19 7"/></svg>Docs only
+                    </button>
+                    <span class="filter-count" id="filter-count"></span>
+                </div>
             </div>
-            <div class="add-path-error is-hidden" id="add-path-error"></div>
             <div id="deleted-bar" class="deleted-bar is-hidden">
-                <button class="button is-danger" id="remove-deleted-btn">Remove all deleted</button>
-            </div>
-            <div class="filter-bar" id="filter-bar">
-                <input class="input" id="filter-input" placeholder="Filter files   /" spellcheck="false" autocomplete="off" title="Filter by name or path — ↑↓ to move, Enter to open, Esc to clear">
-                <span class="filter-count" id="filter-count"></span>
-            </div>
-            <div class="view-options">
-                <label class="view-option" title="Hide files git ignores; folders followed with this off also pick them up"><input type="checkbox" id="opt-gitignore" checked> Respect .gitignore</label>
-                <label class="view-option" title="Show only .md, .markdown and .txt files"><input type="checkbox" id="opt-docs-only"> Only .md / .txt</label>
+                <span id="deleted-text"></span>
+                <button class="link-btn is-danger" id="remove-deleted-btn" title="Drop them from the list">Remove</button>
             </div>
             <div class="file-list" id="file-list">
                 <div class="empty-state">
@@ -57,8 +71,9 @@
                     <code>livemd add file.md</code>
                 </div>
             </div>
-            <div id="clear-bar" class="clear-bar is-hidden">
-                <button class="button clear-all-btn" id="clear-all-btn" title="Remove every watched file and followed folder">Clear all</button>
+            <div id="clear-bar" class="list-footer is-hidden">
+                <span class="list-summary" id="list-summary"></span>
+                <button class="link-btn is-quiet" id="clear-all-btn" title="Stop tracking every file and folder — nothing is deleted from disk">Clear list…</button>
             </div>
         </div>
         <div class="tab-content is-hidden" id="inbox-tab">
@@ -90,12 +105,24 @@
             </div>
         </div>
         <div class="sidebar-footer">
-            <div id="update-banner" class="update-banner is-hidden">
-                <span id="update-text"></span>
+            <div class="update-panel is-hidden" id="update-panel" role="region" aria-label="Update available">
+                <p class="update-panel-title"><span id="update-version"></span> is out</p>
+                <p class="update-panel-text">Update from a terminal — livemd restarts by itself:</p>
+                <div class="update-cmd">
+                    <code>livemd install</code>
+                    <button class="link-btn" id="update-copy-btn">Copy</button>
+                </div>
+                <div class="update-panel-actions">
+                    <button class="link-btn" id="update-notes-btn">What’s new</button>
+                    <button class="link-btn is-quiet" id="update-later-btn">Later</button>
+                </div>
             </div>
             <div class="version-bar">
-                <span id="version-label">livemd</span>
-                <button class="button" id="check-update-btn" title="Check for updates">Check updates</button>
+                <a class="version-label" id="version-label" href="https://github.com/erkantaylan/livemd" target="_blank" rel="noopener"></a>
+                <button class="version-status is-hidden" id="check-update-btn" data-state="checking">
+                    <svg class="status-icon icon-up" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="6 11 12 5 18 11"/></svg>
+                    <span id="update-status-text">Checking…</span>
+                </button>
             </div>
         </div>
     </aside>

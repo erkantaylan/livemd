@@ -907,12 +907,26 @@ func (s *Server) handleAddFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.hub.AddFileWithActive(req.Path, req.Active); err != nil {
+	if err := s.hub.AddFileWithActive(expandHome(req.Path), req.Active); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// expandHome turns a leading ~ into the home directory. The page's path box
+// is fed by copy-paste from terminals, where ~/notes.md is the usual spelling,
+// and the daemon would otherwise look for a directory literally named "~".
+func expandHome(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, `~\`) {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	return filepath.Join(home, path[1:])
 }
 
 func (s *Server) handleActivateFile(w http.ResponseWriter, r *http.Request) {
@@ -1064,6 +1078,7 @@ func (s *Server) routes() *http.ServeMux {
 				http.Error(w, "Invalid request", http.StatusBadRequest)
 				return
 			}
+			req.Path = expandHome(req.Path)
 			if err := s.hub.FollowFolder(&req); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return

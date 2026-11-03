@@ -206,48 +206,45 @@ body.sidebar-resizing {
     gap: var(--s-2);
 }
 
-.github-link {
-    color: var(--ink-faint);
-    display: flex;
-    align-items: center;
-    padding: var(--s-1);
-    border-radius: var(--r-sm);
-    transition: color 0.15s;
-}
-
-.github-link:hover {
-    color: var(--ink);
-}
-
-/* Connection state. Quiet when things are fine, loud only when they break. */
-.tag {
+/* Connection state. A dot while live — the state is the colour, and there is
+   nothing to read. A lost connection adds a word, because only then is there
+   something to know. The box is a 24px hit area so the tooltip is findable. */
+.conn-status {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 5px;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 var(--s-1);
+    border-radius: var(--r-sm);
+    color: var(--ink-faint);
     font-size: 11px;
     line-height: 1;
-    padding: 5px var(--s-2);
-    border-radius: var(--r-sm);
-    background: var(--sunken);
-    color: var(--ink-muted);
     white-space: nowrap;
+    cursor: default;
 }
 
-.tag::before {
+.conn-status::before {
     content: "";
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     background: currentColor;
 }
 
-.tag.is-success {
+.conn-status.is-live {
     color: var(--success);
 }
 
-.tag.is-danger {
+.conn-status.is-offline {
+    padding: 0 var(--s-2);
     background: var(--danger-weak);
     color: var(--danger);
+}
+
+.conn-text:empty {
+    display: none;
 }
 
 /* Tabs */
@@ -396,79 +393,234 @@ a.button {
     text-decoration: none;
 }
 
-.input {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    padding: 6px var(--s-2);
-    min-height: 28px;
-    width: 100%;
+/* --- The omnibox: one field that filters the tree, and offers to track a
+   path when an absolute one is pasted into it. It sits on --raised like every
+   field, but taller than the old pair and in the UI face: typing a filter is
+   reading, not entering code. Paths switch it to mono. --- */
+.omnibox {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+    padding: var(--s-2) var(--s-2) var(--s-2);
+    border-bottom: 1px solid var(--rule);
+}
+
+.omnibox-field {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    min-height: 32px;
+    padding: 0 var(--s-1) 0 var(--s-2);
     background: var(--raised);
-    color: var(--ink);
     border: 1px solid var(--rule-strong);
     border-radius: var(--r-md);
+    cursor: text;
+    transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.input::placeholder {
-    color: var(--ink-faint);
-}
-
-.input:focus {
-    outline: none;
+.omnibox-field:focus-within {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px var(--accent-weak);
 }
 
-.add-path-bar {
+.omnibox-icon {
+    flex-shrink: 0;
+    color: var(--ink-faint);
+}
+
+.omnibox .icon-track,
+.omnibox.is-path .icon-search {
+    display: none;
+}
+
+.omnibox.is-path .icon-track {
+    display: block;
+    color: var(--accent);
+}
+
+.omnibox-input {
+    flex: 1;
+    min-width: 0;
+    height: 30px;
+    padding: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--ink);
+    font-family: var(--font-ui);
+    font-size: 13px;
+}
+
+.omnibox-input::placeholder {
+    color: var(--ink-faint);
+}
+
+.omnibox.is-path .omnibox-input {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+}
+
+/* A key cap, for the shortcut that reaches the field and the one that commits
+   a path. Drawn, not typed: a bare "/" in a placeholder read as part of the
+   hint text. */
+.omnibox-kbd {
+    flex-shrink: 0;
+    min-width: 18px;
+    padding: 1px 5px;
+    border: 1px solid var(--rule-strong);
+    border-bottom-width: 2px;
+    border-radius: var(--r-sm);
+    background: var(--chrome);
+    color: var(--ink-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 14px;
+    text-align: center;
+}
+
+/* The "/" cap gives way to a clear button once there is something to clear,
+   and hides while the field has focus: by then the shortcut has done its job. */
+.omnibox-field .omnibox-kbd {
+    margin-right: var(--s-1);
+}
+
+.omnibox-field:focus-within .omnibox-kbd,
+.omnibox.has-value .omnibox-field .omnibox-kbd {
+    display: none;
+}
+
+.omnibox-clear {
+    display: none;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--ink-faint);
+    cursor: pointer;
+}
+
+.omnibox.has-value .omnibox-clear {
     display: flex;
-    gap: var(--s-1);
-    padding: var(--s-2);
-    border-bottom: 1px solid var(--rule);
 }
 
-/* The match count sits inside the field's right edge; the input reserves room
-   for it so a long query never runs underneath. */
-.filter-bar {
-    position: relative;
-    padding: var(--s-2);
+.omnibox-clear:hover {
+    background: var(--sunken);
+    color: var(--ink);
 }
 
-/* View options narrow the tree like the filter above them: quiet labels, so
-   they read as part of the filter rather than as actions. */
-.view-options {
+/* What Enter will do with a pasted path, spelled out as a button. Accent,
+   because it is the one place the field turns from reading into acting. */
+.omnibox-track {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    min-height: 30px;
+    padding: 0 var(--s-1) 0 var(--s-2);
+    border: 1px solid var(--accent-weak);
+    border-radius: var(--r-md);
+    background: var(--accent-weak);
+    color: var(--accent);
+    font-family: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+
+.omnibox-track:hover {
+    border-color: var(--accent);
+}
+
+.omnibox-track:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.omnibox-track-label {
+    flex-shrink: 0;
+    font-weight: 600;
+}
+
+/* The path gives way at the start, so the end — the file or folder — stays. */
+.omnibox-track-path {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    direction: rtl;
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.omnibox-track-path bdi {
+    unicode-bidi: isolate;
+}
+
+.omnibox-track .omnibox-kbd {
+    border-color: var(--accent);
+    background: var(--raised);
+    color: var(--accent);
+}
+
+/* View options as chips: they narrow the tree like the filter, so they live
+   with it, and a pressed chip shows its state without a checkbox's chrome. */
+.omnibox-meta {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--s-1) var(--s-3);
-    padding: 0 var(--s-3) var(--s-2);
-    border-bottom: 1px solid var(--rule);
+    align-items: center;
+    gap: var(--s-1);
 }
 
-.view-option {
+.chip {
     display: inline-flex;
     align-items: center;
     gap: var(--s-1);
-    font-size: 12px;
+    min-height: 24px;
+    padding: 0 var(--s-2);
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--r-sm);
+    background: transparent;
     color: var(--ink-muted);
+    font-family: inherit;
+    font-size: 11px;
     cursor: pointer;
     user-select: none;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.view-option input {
-    margin: 0;
-    accent-color: var(--accent);
+.chip:hover {
+    background: var(--sunken);
+    color: var(--ink);
 }
 
-.filter-bar .input {
-    padding-right: 72px;
+.chip-check {
+    display: none;
+}
+
+.chip[aria-pressed="true"] {
+    border-color: var(--accent-weak);
+    background: var(--accent-weak);
+    color: var(--accent);
+}
+
+.chip[aria-pressed="true"] .chip-check {
+    display: block;
 }
 
 .filter-count {
-    position: absolute;
-    right: calc(var(--s-2) + var(--s-2));
-    top: 50%;
-    transform: translateY(-50%);
+    margin-left: auto;
+    padding-left: var(--s-2);
     font-size: 11px;
     color: var(--ink-faint);
-    pointer-events: none;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 
 .filter-hit {
@@ -478,49 +630,80 @@ a.button {
 }
 
 .add-path-error {
-    padding: var(--s-2) var(--s-3);
+    padding: var(--s-1) var(--s-2);
+    border-radius: var(--r-sm);
     font-size: 11px;
     color: var(--danger);
     background: var(--danger-weak);
-    border-bottom: 1px solid var(--danger-rule);
     word-break: break-all;
 }
 
-.deleted-bar {
-    padding: var(--s-2) var(--s-3);
-    border-bottom: 1px solid var(--rule);
-    background: var(--danger-weak);
-}
-
-/* Clear-everything lives at the foot of the list, out of the reading flow. A
-   destructive action that clears the whole watch list should not sit where a
-   glance lands or a click strays — see design.md, "hiding an action is for the
-   ones you regret". */
-.clear-bar {
-    padding: var(--s-2) var(--s-3);
-    border-top: 1px solid var(--rule);
-    display: flex;
-    justify-content: flex-end;
-}
-
-/* Quiet until you commit to it: a clear-all button drawn like a warning invites
-   the very click it should discourage. */
-.clear-all-btn {
+/* A text-weight button for actions inside a sentence or a status line. */
+.link-btn {
+    flex-shrink: 0;
+    min-height: 24px;
+    padding: 0 var(--s-2);
+    border: none;
+    border-radius: var(--r-sm);
     background: transparent;
-    border-color: transparent;
-    color: var(--ink-faint);
+    color: var(--accent);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 550;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
 }
 
-.clear-all-btn:hover {
+.link-btn:hover {
     background: var(--sunken);
-    color: var(--ink-muted);
 }
 
-/* Armed by the first click: the second one commits, so now it wears --danger. */
-.clear-all-btn.is-armed,
-.clear-all-btn.is-armed:hover {
+.link-btn.is-danger {
+    color: var(--danger);
+}
+
+.link-btn.is-danger:hover {
+    background: var(--danger-rule);
+}
+
+.link-btn.is-quiet {
+    color: var(--ink-faint);
+    font-weight: 500;
+}
+
+.link-btn.is-quiet:hover {
+    color: var(--ink);
+}
+
+/* Files gone from disk: one slim line saying so, with the fix beside it. */
+.deleted-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-2);
+    padding: var(--s-1) var(--s-1) var(--s-1) var(--s-3);
+    border-bottom: 1px solid var(--danger-rule);
     background: var(--danger-weak);
-    border-color: var(--danger-rule);
+    color: var(--danger);
+    font-size: 11px;
+}
+
+/* The tree's footer: a status line of what is tracked, and Clear list… — quiet,
+   out of the reading flow, and asking before it does anything. */
+.list-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-2);
+    padding: var(--s-1) var(--s-1) var(--s-1) var(--s-3);
+    border-top: 1px solid var(--rule);
+    font-size: 11px;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.list-footer .link-btn.is-quiet:hover {
+    background: var(--danger-weak);
     color: var(--danger);
 }
 
@@ -861,25 +1044,121 @@ a.button {
 }
 
 .version-bar {
-    padding: var(--s-2) var(--s-3);
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: var(--s-2);
-    font-size: 11px;
+    min-height: 36px;
+    padding: var(--s-1) var(--s-1) var(--s-1) var(--s-3);
+}
+
+/* The running version, linking to it on GitHub: a plain underlined link,
+   with no hover box — it is text in a status line, not a control. */
+.version-label {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    line-height: 24px;
     color: var(--ink-faint);
+    text-decoration: underline;
+    text-underline-offset: 2px;
 }
 
-.update-banner {
-    padding: var(--s-2) var(--s-3);
-    background: var(--accent-weak);
-    border-bottom: 1px solid var(--rule);
+/* The update status is the button: it says where things stand, and clicking
+   it does the next sensible thing — check again, or show how to update. */
+.version-status {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--s-1);
+    min-height: 24px;
+    padding: 0 var(--s-2);
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--ink-faint);
+    font-family: inherit;
     font-size: 11px;
-    color: var(--accent);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.update-banner a {
+.version-status:hover {
+    background: var(--sunken);
+    color: var(--ink);
+}
+
+.version-status .status-icon {
+    display: none;
+}
+
+.version-status[data-state="available"] .icon-up {
+    display: block;
+}
+
+.version-status[data-state="available"] {
+    border-color: var(--accent-weak);
+    background: var(--accent-weak);
     color: var(--accent);
+    font-weight: 600;
+}
+
+.version-status[data-state="available"]:hover {
+    border-color: var(--accent);
+}
+
+.version-status[data-state="error"] {
+    color: var(--warn);
+}
+
+/* Opened from the status button, never by itself. */
+.update-panel {
+    padding: var(--s-3);
+    border-bottom: 1px solid var(--rule);
+    background: var(--paper);
+    font-size: 12px;
+}
+
+.update-panel p {
+    margin: 0 0 var(--s-2);
+}
+
+.update-panel-title {
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.update-panel-text {
+    color: var(--ink-muted);
+}
+
+.update-cmd {
+    display: flex;
+    align-items: center;
+    gap: var(--s-1);
+    padding: var(--s-1) var(--s-1) var(--s-1) var(--s-2);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-sm);
+    background: var(--sunken);
+}
+
+.update-cmd code {
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink);
+}
+
+.update-panel-actions {
+    display: flex;
+    justify-content: space-between;
+    margin-top: var(--s-2);
+    margin-left: calc(-1 * var(--s-2));
 }
 
 /* =============================================================== Logs ==== */

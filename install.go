@@ -36,6 +36,9 @@ type VersionInfo struct {
 	UpdateAvail bool   `json:"updateAvailable"`
 	LatestURL   string `json:"latestUrl,omitempty"`
 	CheckedAt   string `json:"checkedAt"`
+	// Error is set when GitHub could not be asked, so the page can say
+	// "couldn't check" instead of claiming the build is current.
+	Error string `json:"error,omitempty"`
 }
 
 type githubAsset struct {
@@ -320,6 +323,7 @@ func CheckForUpdate() VersionInfo {
 	release, err := fetchLatestRelease()
 	if err != nil {
 		info.Latest = Version
+		info.Error = err.Error()
 		return info
 	}
 
