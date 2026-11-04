@@ -1327,10 +1327,16 @@ a.button {
     background: none;
 }
 
+/* The sidebar is already --chrome, so a quote there tints one step further. */
 .changelog-body blockquote {
-    padding-left: var(--s-2);
-    border-left: 2px solid var(--rule-strong);
+    padding: var(--s-1) var(--s-2);
+    background: var(--sunken);
+    border-radius: var(--r-sm);
     color: var(--ink-faint);
+}
+
+.changelog-body blockquote > :last-child {
+    margin-bottom: 0;
 }
 
 .changelog-body hr {
@@ -1605,10 +1611,17 @@ article.content strong {
     font-weight: 650;
 }
 
+/* A quote is set apart by a tint, not a bar down one side. --chrome is a
+   step off the paper, quieter than a code block's outlined --raised. */
 article.content blockquote {
-    padding-left: var(--s-4);
-    border-left: 3px solid var(--rule-strong);
+    padding: var(--s-3) var(--s-4);
+    background: var(--chrome);
+    border-radius: var(--r-md);
     color: var(--ink-muted);
+}
+
+article.content blockquote > :last-child {
+    margin-bottom: 0;
 }
 
 article.content hr {
