@@ -121,6 +121,7 @@
     const optDocsOnly = toggleChip(document.getElementById('opt-docs-only'));
     const addPathError = document.getElementById('add-path-error');
     const copyBtn = document.getElementById('copy-btn');
+    const readonlyLock = document.getElementById('readonly-lock');
     const contentSubheader = document.getElementById('content-subheader');
     const lineInfo = document.getElementById('line-info');
     const inboxList = document.getElementById('inbox-list');
@@ -399,7 +400,7 @@
                 // The render is already in hand — seed the cache so selectFile
                 // shows it without a second round trip.
                 cachePut(cacheKey(actual, mode), { html: d.html, view: d.view });
-                ephemeral = { path: actual, name: baseName(actual), untracked: true };
+                ephemeral = { path: actual, name: baseName(actual), untracked: true, readOnly: !!d.readOnly };
                 selectFile(actual, opts);
             })
             .catch(() => {
@@ -1551,6 +1552,9 @@
             })
             .then(d => {
                 clearTimeout(spinner);
+                // Nothing broadcasts an untracked file's state, so the render
+                // is where it learns whether it is read-only.
+                if (file.untracked) file.readOnly = !!d.readOnly;
                 cachePut(key, { html: d.html, view: d.view });
                 apply(d.html, d.view);
             })
@@ -1684,6 +1688,7 @@
             return;
         }
         contentSubheader.classList.remove('is-hidden');
+        readonlyLock.classList.toggle('is-hidden', !file.readOnly);
         const total = currentLineTotal();
         lineInfo.textContent = total ? total.toLocaleString() + ' lines' : '';
     }
@@ -1713,6 +1718,61 @@
             el = document.getElementById(id);
         }
         if (el) el.scrollIntoView();
+    }
+
+    // --- Task checkboxes write to the file. The server stamps each live box
+    // with where its "[ ]" sits and a hash of the file as rendered; a click
+    // asks for that one character to flip and the answer is a fresh render.
+    // The box itself does not change until then, so what is on screen is
+    // always what is on disk. Clicks queue behind each other: each one reads
+    // its version off the page when it is sent, after the previous tick's
+    // render is in, so quick ticks in a row never refuse each other. A
+    // refusal means the file changed under the page (or turned read-only),
+    // and the answer to that is to show the file as it now is. ---
+    let taskQueue = Promise.resolve();
+
+    content.addEventListener('click', e => {
+        const box = e.target.closest && e.target.closest('input.task-check');
+        if (!box) return;
+        e.preventDefault(); // the reply's render decides what the box shows
+        if (!box.dataset.taskOffset || !activeFile) return;
+        const path = activeFile;
+        const offset = box.dataset.taskOffset;
+        // During a click the box already shows its new state; preventDefault
+        // puts it back afterwards.
+        const checked = box.checked;
+        box.classList.add('is-pending');
+        taskQueue = taskQueue.then(() => sendTask(path, offset, checked));
+    });
+
+    function sendTask(path, offset, checked) {
+        const showing = () => path === activeFile && effectiveMode(path) === 'preview';
+        if (!showing()) return;
+        const box = content.querySelector('input.task-check[data-task-offset="' + offset + '"]');
+        if (!box) return;
+        return fetch('/api/task', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path, offset: Number(offset), checked, version: box.dataset.taskVersion }),
+        })
+            .then(r => {
+                if (r.ok) return r.json();
+                if (r.status === 409 || r.status === 403) return null; // changed or locked
+                throw new Error('HTTP ' + r.status);
+            })
+            .then(d => {
+                const file = fileFor(path);
+                invalidateCache(path);
+                if (d) {
+                    if (file && file.untracked) file.readOnly = !!d.readOnly;
+                    cachePut(cacheKey(path, 'preview'), { html: d.html, view: d.view });
+                }
+                if (file && showing()) renderContent(file, true);
+            })
+            .catch(err => {
+                console.error('Checkbox not saved:', err);
+                box.classList.remove('is-pending');
+            });
     }
 
     content.addEventListener('click', e => {
@@ -1910,11 +1970,13 @@
     function inboxFileFor(path) {
         const f = inboxFiles.find(x => pathsEqual(x.path, path));
         if (!f) return null;
-        return { path: f.path, name: f.name, lastChange: f.modTime, size: f.size, inbox: true };
+        return { path: f.path, name: f.name, lastChange: f.modTime, size: f.size, inbox: true, readOnly: !!f.readOnly };
     }
 
     function applyInbox(data) {
-        const previous = new Map(inboxFiles.map(f => [f.path, f.modTime]));
+        // modTime and readOnly together: a chmod changes no mtime, but it
+        // locks or unlocks the checkboxes, so the page has to render again.
+        const previous = new Map(inboxFiles.map(f => [f.path, f.modTime + '|' + !!f.readOnly]));
         inboxFiles = data.files || [];
         inboxDir = data.dir || '';
         // <bdi>: the button truncates from the left (direction: rtl), and
@@ -1942,7 +2004,7 @@
             renderInboxList();
             return;
         }
-        if (now.lastChange !== previous.get(activeFile)) {
+        if (now.lastChange + '|' + now.readOnly !== previous.get(activeFile)) {
             // Rewritten: drop the cached render and show the new one in place.
             invalidateCache(activeFile);
             if (!contentOverride) renderContent(now, true);

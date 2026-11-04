@@ -43,8 +43,10 @@ func (w *Watcher) Watch(filepath string, onChange func(), onDelete func()) error
 					return
 				}
 
-				// Only react to write events
-				if event.Op&fsnotify.Write == fsnotify.Write {
+				// Writes change the content. Chmod is metadata only, but it
+				// is how a file turns read-only or writable again, which the
+				// page shows as a lock and in whether its checkboxes work.
+				if event.Op&(fsnotify.Write|fsnotify.Chmod) != 0 {
 					w.debounce(onChange)
 				}
 

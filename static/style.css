@@ -1445,6 +1445,15 @@ main {
     min-height: 24px;
 }
 
+/* Shown only on a file livemd cannot write. A plain glyph, not a button:
+   there is nothing to press, the tooltip says why. */
+.readonly-lock {
+    display: inline-flex;
+    align-items: center;
+    color: var(--ink-muted);
+    cursor: help;
+}
+
 .copy-btn.copied {
     background: var(--success);
     border-color: var(--success);
@@ -1990,4 +1999,15 @@ article.content::-webkit-scrollbar-thumb {
     border: 3px solid transparent;
     background-clip: content-box;
     border-radius: 999px;
+}
+
+/* --- Task checkboxes. A live one writes to the file, so it says so with the
+   pointer; a disabled one (read-only file) keeps the default. While a tick is
+   on its way the box dims, since it only changes once the file has. --- */
+.task-check:not(:disabled) {
+    cursor: pointer;
+}
+
+.task-check.is-pending {
+    opacity: 0.5;
 }

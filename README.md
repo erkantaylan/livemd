@@ -195,6 +195,7 @@ livemd add docs/demo.md
 - **Normal / Wide toggle** - Documents read in a centred column by default; Wide lets them fill the window, for wide tables and long code. Remembered across restarts
 - **Copy-pasteable URLs** - The address bar *is* the file's path (`http://localhost:3000/home/me/notes.md`), so a path pasted from a terminal opens it and a link copied from the page is a path; `?view=raw` and `#heading` ride along, and Back/Forward step through the documents you opened
 - **Working markdown links** - Relative links and images resolve against the document's own directory. A link to a neighbour opens it in place without adding it to the watch list; a Track button promotes it when you want live reload. Links outside every tracked root are refused rather than followed
+- **Clickable checkboxes** - Task list boxes (`- [ ]`) in any markdown file livemd shows tick and untick the file itself, one character in place, nothing else touched. If the file changed since the page rendered it, the click is refused and the page shows the file as it now is. A file livemd cannot write gets a lock next to Copy, and its boxes stay disabled
 - **No line limits** - Files render in full, with a Copy button for the whole file. Text files are capped at 50 MB (media is exempt, since the browser streams it); syntax highlighting drops to plain text above 2 MB, where it costs 8x the HTML and buys nothing
 - **WebSocket live updates** - No page refresh needed
 - **Rendered changelog** - The Changelog tab shows GitHub release notes as markdown, not raw text

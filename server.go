@@ -31,9 +31,10 @@ type WatchedFile struct {
 	Name       string    `json:"name"`
 	TrackTime  time.Time `json:"trackTime"`
 	LastChange time.Time `json:"lastChange"`
-	Active     bool      `json:"active"`            // true if actively being watched by fsnotify
-	Deleted    bool      `json:"deleted"`           // true if file was deleted from disk
-	Ignored    bool      `json:"ignored,omitempty"` // git ignores it; set only in list broadcasts
+	Active     bool      `json:"active"`             // true if actively being watched by fsnotify
+	Deleted    bool      `json:"deleted"`            // true if file was deleted from disk
+	Ignored    bool      `json:"ignored,omitempty"`  // git ignores it; set only in list broadcasts
+	ReadOnly   bool      `json:"readOnly,omitempty"` // livemd cannot write it; checked when sent
 }
 
 // Message sent to clients via WebSocket
@@ -68,6 +69,10 @@ type Hub struct {
 	inbox    *inbox // nil until startInbox succeeds
 	renderer *Renderer
 	logger   *Logger
+
+	// taskMu serialises checkbox ticks and guards ownWrites (see tasks.go).
+	taskMu    sync.Mutex
+	ownWrites map[string]ownWrite
 }
 
 func NewHub() *Hub {
@@ -81,6 +86,7 @@ func NewHub() *Hub {
 		folders:    make(map[string]*WatchedFolder),
 		renderer:   NewRenderer(),
 		logger:     NewLogger(100),
+		ownWrites:  make(map[string]ownWrite),
 	}
 	h.logger.SetHub(h)
 
@@ -225,6 +231,9 @@ func (h *Hub) snapshotFilesFolders() ([]WatchedFile, []WatchedFolder) {
 func (h *Hub) fileListMessage() []byte {
 	files, folders := h.snapshotFilesFolders()
 	markIgnored(files)
+	for i := range files {
+		files[i].ReadOnly = !files[i].Deleted && !fileWritable(files[i].Path)
+	}
 	data, _ := json.Marshal(Message{Type: "files", Files: files, Folders: folders})
 	return data
 }
@@ -525,14 +534,21 @@ func (h *Hub) startWatcher(path string) {
 
 		// Only metadata changes here; the update message tells the client its
 		// cached render is stale so it can refetch if the file is on screen.
-		info, _ := os.Stat(path)
-		if info != nil {
+		// A checkbox tick from the page is still broadcast, so other tabs
+		// catch up, but keeps the time of the last real edit.
+		shown, ticked := h.ownWriteTime(path)
+		if ticked {
+			f.LastChange = shown
+		} else if info, _ := os.Stat(path); info != nil {
 			f.LastChange = info.ModTime()
 		}
+		f.ReadOnly = !fileWritable(path)
 		f.Deleted = false // file is back if it was marked deleted
 		h.mu.Unlock()
 
-		h.logger.Info(fmt.Sprintf("File changed: %s", filepath.Base(path)))
+		if !ticked {
+			h.logger.Info(fmt.Sprintf("File changed: %s", filepath.Base(path)))
+		}
 		h.broadcastFileUpdate(f)
 	}, func() {
 		// onDelete callback
@@ -884,16 +900,24 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.writeRender(w, actual, mode)
+}
+
+// writeRender answers with one render of actual: the HTML, the daemon's
+// spelling of the path, the shape of the view, and whether the file is
+// read-only, which puts a lock in the page's header.
+func (s *Server) writeRender(w http.ResponseWriter, actual string, mode renderMode) {
 	html, err := s.hub.renderer.RenderMode(actual, mode)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"html": html,
-		"path": actual,
-		"view": viewKind(actual, mode),
+	json.NewEncoder(w).Encode(map[string]any{
+		"html":     html,
+		"path":     actual,
+		"view":     viewKind(actual, mode),
+		"readOnly": !fileWritable(actual),
 	})
 }
 
@@ -1177,6 +1201,7 @@ func (s *Server) routes() *http.ServeMux {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("/api/render", s.handleRender)
+	mux.HandleFunc("/api/task", s.handleTask)
 	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/api/releases", s.handleReleases)
 	mux.HandleFunc("/api/version", s.handleVersion)

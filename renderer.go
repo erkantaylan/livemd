@@ -69,6 +69,7 @@ func NewRenderer() *Renderer {
 			parser.WithASTTransformers(
 				util.Prioritized(&mermaidTransformer{}, 100),
 				util.Prioritized(&linkTransformer{}, 200),
+				util.Prioritized(&taskTransformer{}, 300),
 			),
 			parser.WithBlockParsers(
 				// Before the paragraph parser (1000) so $$ blocks are claimed
@@ -82,6 +83,9 @@ func NewRenderer() *Renderer {
 			renderer.WithNodeRenderers(
 				util.Prioritized(&mermaidRenderer{}, 100),
 				util.Prioritized(&mathBlockRenderer{}, 100),
+				// Wins over GFM's own checkbox renderer (500, and the lower
+				// number takes the kind), which only emits disabled boxes.
+				util.Prioritized(&taskRenderer{}, 100),
 			),
 		),
 	)
@@ -330,6 +334,11 @@ func (r *Renderer) renderMarkdown(path string, content []byte) (string, error) {
 
 	pc := parser.NewContext()
 	pc.Set(baseDirKey, filepath.Dir(path))
+	// Checkbox offsets are into the whole file, so they survive the front
+	// matter being cut off; body is always a suffix of content.
+	pc.Set(taskOffsetKey, len(content)-len(body))
+	pc.Set(taskVersionKey, fileVersion(content))
+	pc.Set(taskWritableKey, fileWritable(path))
 
 	var buf bytes.Buffer
 	if err := r.md.Convert(body, &buf, parser.WithContext(pc)); err != nil {

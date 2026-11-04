@@ -30,10 +30,11 @@ import (
 
 // InboxFile is one entry in the Inbox tab.
 type InboxFile struct {
-	Path    string    `json:"path"`
-	Name    string    `json:"name"`
-	Size    int64     `json:"size"`
-	ModTime time.Time `json:"modTime"`
+	Path     string    `json:"path"`
+	Name     string    `json:"name"`
+	Size     int64     `json:"size"`
+	ModTime  time.Time `json:"modTime"`
+	ReadOnly bool      `json:"readOnly,omitempty"`
 }
 
 // getInboxDir is the inbox's fixed location: ~/.livemd/inbox, or
@@ -207,6 +208,14 @@ func (h *Hub) inboxMessage() []byte {
 		if list, err := listInbox(dir); err == nil {
 			files = list
 		}
+	}
+	// A checkbox tick rewrites the file but is not news: while the file holds
+	// what the tick wrote, the listing keeps the mtime from before it.
+	for i := range files {
+		if shown, ok := h.ownWriteTime(files[i].Path); ok {
+			files[i].ModTime = shown
+		}
+		files[i].ReadOnly = !fileWritable(files[i].Path)
 	}
 	data, _ := json.Marshal(struct {
 		Type  string      `json:"type"`
