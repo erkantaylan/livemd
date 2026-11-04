@@ -914,19 +914,15 @@ a.button {
     color: var(--ink-muted);
 }
 
+/* Selection is the background tint alone: no coloured strip down one side. */
 .file-item.active {
     background: var(--selected);
-    box-shadow: inset 2px 0 0 var(--accent);
 }
 
 /* The row Enter would open while filtering. A hairline, not a fill, so it
    reads as "here" without competing with the selected file's sand. */
 .file-item.is-cursor {
     box-shadow: inset 0 0 0 1px var(--rule-strong);
-}
-
-.file-item.active.is-cursor {
-    box-shadow: inset 2px 0 0 var(--accent), inset 0 0 0 1px var(--rule-strong);
 }
 
 .file-item.active .file-name {
