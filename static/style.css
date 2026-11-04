@@ -171,6 +171,7 @@ body.sidebar-collapsed .sidebar-toggle-chevron {
     background: transparent;
     flex-shrink: 0;
     transition: background 0.15s;
+    touch-action: none;
 }
 
 .sidebar-resizer:hover,
@@ -181,6 +182,13 @@ body.sidebar-collapsed .sidebar-toggle-chevron {
 body.sidebar-resizing {
     cursor: col-resize;
     user-select: none;
+}
+
+/* Nested documents would swallow the pointer mid-drag (Firefox hands the
+   release to the iframe or PDF document), so they sit out until it ends. */
+body.sidebar-resizing iframe,
+body.sidebar-resizing embed {
+    pointer-events: none;
 }
 
 .sidebar-header {

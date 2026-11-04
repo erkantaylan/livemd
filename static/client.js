@@ -2284,27 +2284,45 @@
 
     let isResizing = false;
 
-    resizer.addEventListener('mousedown', (e) => {
+    // Pointer capture keeps the drag on the resizer: with plain document
+    // mouse listeners Firefox delivers the release to an HTML preview iframe
+    // or PDF embed under the cursor, the top document never sees it, and the
+    // sidebar keeps following the mouse on hover. Every way a drag can end
+    // funnels into stopResize so it cannot get stuck.
+    function stopResize() {
+        if (!isResizing) return;
+        isResizing = false;
+        document.body.classList.remove('sidebar-resizing');
+        resizer.classList.remove('dragging');
+    }
+
+    resizer.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
         isResizing = true;
+        resizer.setPointerCapture(e.pointerId);
         document.body.classList.add('sidebar-resizing');
         resizer.classList.add('dragging');
         e.preventDefault();
     });
 
-    document.addEventListener('mousemove', (e) => {
+    resizer.addEventListener('pointermove', (e) => {
         if (!isResizing) return;
-        const newWidth = e.clientX;
-        if (newWidth >= 120 && newWidth <= 600) {
-            sidebar.style.width = newWidth + 'px';
+        // No button held means the release happened somewhere we never heard
+        // about; end the drag rather than resize on hover.
+        if (e.buttons === 0) {
+            stopResize();
+            return;
         }
+        // Clamp to the CSS min/max-width so the edge follows the pointer
+        // right up to the limit instead of freezing short of it.
+        const newWidth = Math.min(600, Math.max(140, e.clientX));
+        sidebar.style.width = newWidth + 'px';
     });
 
-    document.addEventListener('mouseup', () => {
-        if (!isResizing) return;
-        isResizing = false;
-        document.body.classList.remove('sidebar-resizing');
-        resizer.classList.remove('dragging');
-    });
+    resizer.addEventListener('pointerup', stopResize);
+    resizer.addEventListener('pointercancel', stopResize);
+    resizer.addEventListener('lostpointercapture', stopResize);
+    window.addEventListener('blur', stopResize);
 
     showWelcome();
     connect();
