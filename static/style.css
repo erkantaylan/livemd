@@ -2011,3 +2011,18 @@ article.content::-webkit-scrollbar-thumb {
 .task-check.is-pending {
     opacity: 0.5;
 }
+
+/* A task item's box already marks it, so a bullet beside it is noise; the item
+   moves left into the list's padding so the box sits where the bullet would.
+   Loose lists wrap the box in a <p>. Plain items in a mixed list keep their
+   bullet, and a nested list still indents from the box. */
+article.content li:has(> input.task-check, > p:first-child > input.task-check) {
+    list-style: none;
+    margin-left: calc(var(--s-1) - var(--s-5));
+}
+
+/* Win back the shift for a list nested under a task item, so its children
+   start under the parent's text rather than under its box. */
+article.content li:has(> input.task-check, > p:first-child > input.task-check) > :is(ul, ol) {
+    padding-left: calc(2 * var(--s-5) - var(--s-1));
+}
