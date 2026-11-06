@@ -7,7 +7,7 @@ description: Render a file in the browser with live reload via the livemd server
 
 `livemd` is a persistent local server (default http://localhost:3000) that watches
 files and renders them in the browser with WebSocket live updates: GFM tables,
-mermaid diagrams, KaTeX math, syntax highlighting, images, PDFs, CSV as tables.
+mermaid diagrams, KaTeX math, callouts, syntax highlighting, images, PDFs, CSV as tables.
 
 ## Activation
 
@@ -128,6 +128,22 @@ Windows): a `files` array and a `folders` array.
 ## Writing markdown
 
 Never hard-wrap prose in a `.md` file. Write each paragraph and each list item as one line and let the browser and the editor wrap it. Manual line breaks at 80 or 100 columns turn every later edit into a reflow of the whole paragraph, make diffs noisy, and read as ragged lines in raw view. Line breaks belong only where markdown needs them: between paragraphs, list items, table rows, headings, and inside code blocks.
+
+Callouts use fenced containers, the Markdig, Docusaurus and VitePress syntax. The body is ordinary markdown and the title is optional plain text:
+
+```markdown
+:::warning Title
+Body.
+:::
+
+::::details Collapsed title
+:::note
+A container inside another needs a longer outer fence.
+:::
+::::
+```
+
+The kinds are `note`, `info`, `tip`, `success`, `warning`, `danger`, `example` and `question`, plus `details`, which starts closed. Any other name renders as a neutral box titled with that name.
 
 ## Notes and gotchas
 

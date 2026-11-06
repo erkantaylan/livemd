@@ -75,6 +75,7 @@ func NewRenderer() *Renderer {
 				// Before the paragraph parser (1000) so $$ blocks are claimed
 				// whole — setext/thematic rules never see their inner lines.
 				util.Prioritized(&mathBlockParser{}, 750),
+				util.Prioritized(&containerParser{}, 750),
 			),
 		),
 		goldmark.WithRendererOptions(
@@ -83,6 +84,7 @@ func NewRenderer() *Renderer {
 			renderer.WithNodeRenderers(
 				util.Prioritized(&mermaidRenderer{}, 100),
 				util.Prioritized(&mathBlockRenderer{}, 100),
+				util.Prioritized(&containerRenderer{}, 100),
 				// Wins over GFM's own checkbox renderer (500, and the lower
 				// number takes the kind), which only emits disabled boxes.
 				util.Prioritized(&taskRenderer{}, 100),

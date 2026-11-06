@@ -61,7 +61,9 @@ reuses one.
 | `--accent-weak` | `#dce7f2` | Accent backgrounds. |
 | `--danger` | `#a8332a` | Remove, delete, deleted-file state. Warm red, never neon. |
 | `--success` | `#3f7a4f` | "Copied", connection live. |
+| `--success-weak` | `#e3efe5` | Tip and success callouts. |
 | `--warn` | `#8a6516` | Warnings in the log. |
+| `--warn-weak` | `#f5ecd6` | Warning callouts. |
 
 ### Space and shape
 

@@ -107,6 +107,19 @@ Inside a bullet, with prose after it:
 >
 > With a second paragraph.
 
+:::warning Check this
+A callout, with **markdown** in it:
+
+- a list
+- [a link](code.md)
+:::
+
+::::details Collapsed
+:::note
+A callout nested in a longer fence.
+:::
+::::
+
 ## Rule
 
 ---

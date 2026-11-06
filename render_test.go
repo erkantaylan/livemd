@@ -56,6 +56,8 @@ func TestKitchenSinkStructure(t *testing.T) {
 		{"task list checkbox", `type="checkbox"`},
 		{"table head", "<thead>"},
 		{"blockquote", "<blockquote>"},
+		{"callout", `class="callout callout-warning"`},
+		{"collapsible container", "<details"},
 		{"horizontal rule", "<hr"},
 		{"inline code", "<code>"},
 		{"relative link rewritten", `href="` + filePathToURLPath(mustAbs(t, "testdata/render/code.md")) + `"`},

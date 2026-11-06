@@ -23,7 +23,9 @@
     --danger-weak: #f6e4e2;
     --danger-rule: #e0c3bf;
     --success: #3f7a4f;
+    --success-weak: #e3efe5;
     --warn: #8a6516;
+    --warn-weak: #f5ecd6;
 
     /* Overlay — the confirm dialog's backdrop and lift, both ink at low alpha
        so they darken the warm paper instead of greying it. */
@@ -1624,6 +1626,54 @@ article.content blockquote > :last-child {
     margin-bottom: 0;
 }
 
+/* Callouts (:::note and friends) follow the quote: a tint, no bar. The tint is
+   the kind; the text stays --ink so a long box reads like the page around it. */
+article.content .callout {
+    margin: 0 0 var(--s-4);
+    padding: var(--s-3) var(--s-4);
+    background: var(--chrome);
+    border-radius: var(--r-md);
+}
+
+article.content .callout > :last-child {
+    margin-bottom: 0;
+}
+
+article.content .callout-title {
+    margin: 0 0 var(--s-1);
+    font-weight: 650;
+}
+
+article.content .callout-note,
+article.content .callout-info,
+article.content .callout-example,
+article.content .callout-question {
+    background: var(--accent-weak);
+}
+
+article.content .callout-tip,
+article.content .callout-success {
+    background: var(--success-weak);
+}
+
+article.content .callout-warning {
+    background: var(--warn-weak);
+}
+
+article.content .callout-danger {
+    background: var(--danger-weak);
+}
+
+/* The title is the whole control, so it needs no gap until the box is open. */
+article.content details.callout > summary {
+    margin-bottom: 0;
+    cursor: pointer;
+}
+
+article.content details.callout[open] > summary {
+    margin-bottom: var(--s-1);
+}
+
 article.content hr {
     height: 1px;
     border: 0;
@@ -1654,6 +1704,7 @@ article.content > ul,
 article.content > ol,
 article.content > dl,
 article.content > blockquote,
+article.content > .callout,
 article.content > hr,
 article.content > .front-matter,
 article.content > .welcome {

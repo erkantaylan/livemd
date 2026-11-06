@@ -190,7 +190,7 @@ livemd add docs/demo.md
 - **Inbox** - A watched drop folder (`livemd inbox`) with its own tab: new files appear by themselves, and the bin button sends a file to the system trash after asking
 - **One field to filter or add** - Type in the sidebar field (or press `/` anywhere) to narrow the tree to files whose path matches every term; ↑/↓ move through the matches, Enter opens one, Esc clears. Paste an absolute path (`/…`, `~/…`, `C:\…`) instead and Enter tracks it — a folder is followed with everything in it
 - **Lazy watching** - Files are registered but only actively watched when selected, and content is rendered on demand: the daemon holds no HTML, so tracking a 40 MB file costs nothing until you open it
-- **Many viewers** - Markdown (GFM + mermaid + KaTeX math), 50+ syntax-highlighted code languages, images, PDFs, audio, video, CSV/TSV as tables
+- **Many viewers** - Markdown (GFM + mermaid + KaTeX math + `:::note` callouts), 50+ syntax-highlighted code languages, images, PDFs, audio, video, CSV/TSV as tables
 - **Preview / Raw toggle** - Markdown and HTML switch between the rendered document and the original source; the choice is remembered per file and travels in the URL
 - **Normal / Wide toggle** - Documents read in a centred column by default; Wide lets them fill the window, for wide tables and long code. Remembered across restarts
 - **Copy-pasteable URLs** - The address bar *is* the file's path (`http://localhost:3000/home/me/notes.md`), so a path pasted from a terminal opens it and a link copied from the page is a path; `?view=raw` and `#heading` ride along, and Back/Forward step through the documents you opened
